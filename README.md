@@ -52,7 +52,7 @@ To bring this project to life, you will need the following components:
 
 -----
 
-## 📦 Installing App
+## 📥 Installing App
 
 1. Download the app from the **[releases](https://github.com/W0rthlessS0ul/FZ_nRF24_jammer/releases)** section that corresponds to your firmware.
 2. Install **[qFlipper](https://flipperzero.one)**
