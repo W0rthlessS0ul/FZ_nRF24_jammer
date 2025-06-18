@@ -10,12 +10,24 @@
 #define nrf24 (FuriHalSpiBusHandle*)&furi_hal_spi_bus_handle_external
 #define HOLD_DELAY_MS 100
 
+// Nightfall submenu options
+typedef enum {
+    NIGHTFALL_PS4,
+    NIGHTFALL_PS5,
+    NIGHTFALL_XBOX,
+    NIGHTFALL_SWITCH,
+    NIGHTFALL_WIRELESS_AUDIO,
+    NIGHTFALL_AIRPODS,
+    NIGHTFALL_COUNT
+} NightfallMenuType;
+
 typedef enum {
     MENU_BLUETOOTH,
     MENU_DRONE,
     MENU_WIFI,
     MENU_BLE,
     MENU_ZIGBEE,
+    MENU_NIGHTFALL,
     MENU_MISC,
     MENU_COUNT
 } MenuType;
@@ -44,10 +56,12 @@ typedef struct {
     bool wifi_menu_active;
     bool show_jamming_started;
     bool wifi_channel_select;
+    bool nightfall_menu_active;
     
     MenuType current_menu;
     WifiMode wifi_mode;
     MiscState misc_state;
+    NightfallMenuType nightfall_menu;
     uint8_t wifi_channel;
     uint8_t misc_start;
     uint8_t misc_stop;
@@ -75,6 +89,7 @@ const NotificationSequence error_sequence = {
     NULL,
 };
 
+// --- Bluetooth, Drone, BLE, Zigbee channel arrays ---
 static uint8_t bluetooth_channels[] = {32, 34, 46, 48, 50, 52, 0, 1, 2, 4, 6, 8, 22, 24, 26, 28, 30, 74, 76, 78, 80};
 static uint8_t drone_channels[125];
 static uint8_t ble_channels[] = {2, 26, 80};
@@ -84,6 +99,18 @@ static const int bluetooth_channels_count = sizeof(bluetooth_channels) / sizeof(
 static const int drone_channels_count = sizeof(drone_channels) / sizeof(drone_channels[0]);
 static const int ble_channels_count = sizeof(ble_channels) / sizeof(ble_channels[0]);
 static const int zigbee_channels_count = sizeof(zigbee_channels) / sizeof(zigbee_channels[0]);
+
+// --- Nightfall's Options channel arrays ---
+static uint8_t nightfall_xbox_channels[] = {7, 17, 27, 37, 47, 57, 67, 75};
+static uint8_t nightfall_switch_channels[] = {12, 17, 22, 27, 32, 37, 42, 47, 52, 57, 62};
+static uint8_t nightfall_wireless_audio_channels[] = {0, 10, 20, 30, 40, 50, 60, 70, 80};
+// BLE-relevante Kanäle für BLE-basierte Geräte (PS4, PS5, AirPods/Pro)
+static uint8_t nightfall_ble_channels[] = {2, 26, 80}; // BLE: 37, 38, 39
+
+static const int nightfall_xbox_channels_count = sizeof(nightfall_xbox_channels) / sizeof(nightfall_xbox_channels[0]);
+static const int nightfall_switch_channels_count = sizeof(nightfall_switch_channels) / sizeof(nightfall_switch_channels[0]);
+static const int nightfall_wireless_audio_channels_count = sizeof(nightfall_wireless_audio_channels) / sizeof(nightfall_wireless_audio_channels[0]);
+static const int nightfall_ble_channels_count = sizeof(nightfall_ble_channels) / sizeof(nightfall_ble_channels[0]);
 
 static void jam_bluetooth(PluginState* state) {
     nrf24_set_tx_mode(nrf24);
@@ -195,6 +222,49 @@ static void jam_zigbee(PluginState* state) {
     }
 }
 
+static void jam_nightfall(PluginState* state) {
+    // BLE-basierte Geräte: PS4, PS5, AirPods/Pro
+    if(state->nightfall_menu == NIGHTFALL_PS4 || state->nightfall_menu == NIGHTFALL_PS5 || state->nightfall_menu == NIGHTFALL_AIRPODS) {
+        uint8_t mac[] = {0xFF, 0xFF};
+        nrf24_configure(nrf24, 2, mac, mac, 2, 1, true, true);
+        uint8_t setup;
+        nrf24_read_reg(nrf24, REG_RF_SETUP, &setup, 1);
+        setup = (setup & 0xF8) | 7;
+        nrf24_write_reg(nrf24, REG_RF_SETUP, setup);
+        uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
+        nrf24_set_tx_mode(nrf24);
+        while(!state->is_stop) {
+            for(int i = 0; i < nightfall_ble_channels_count && !state->is_stop; i++) {
+                nrf24_write_reg(nrf24, REG_RF_CH, nightfall_ble_channels[i]);
+                nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
+            }
+        }
+        nrf24_set_idle(nrf24);
+        return;
+    }
+    // Proprietäre Geräte: Xbox, Switch, Wireless Audio
+    nrf24_set_tx_mode(nrf24);
+    nrf24_startConstCarrier(nrf24, 7, 0);
+    while(!state->is_stop) {
+        switch(state->nightfall_menu) {
+            case NIGHTFALL_XBOX:
+                for(int i = 0; i < nightfall_xbox_channels_count && !state->is_stop; i++)
+                    nrf24_write_reg(nrf24, REG_RF_CH, nightfall_xbox_channels[i]);
+                break;
+            case NIGHTFALL_SWITCH:
+                for(int i = 0; i < nightfall_switch_channels_count && !state->is_stop; i++)
+                    nrf24_write_reg(nrf24, REG_RF_CH, nightfall_switch_channels[i]);
+                break;
+            case NIGHTFALL_WIRELESS_AUDIO:
+                for(int i = 0; i < nightfall_wireless_audio_channels_count && !state->is_stop; i++)
+                    nrf24_write_reg(nrf24, REG_RF_CH, nightfall_wireless_audio_channels[i]);
+                break;
+            default: break;
+        }
+    }
+    nrf24_stopConstCarrier(nrf24);
+}
+
 static int32_t jam_thread(void* ctx) {
     PluginState* state = ctx;
     state->is_running = true;
@@ -206,6 +276,7 @@ static int32_t jam_thread(void* ctx) {
         case MENU_WIFI: jam_wifi(state); break;
         case MENU_BLE: jam_ble(state); break;
         case MENU_ZIGBEE: jam_zigbee(state); break;
+        case MENU_NIGHTFALL: jam_nightfall(state); break;
         case MENU_MISC: jam_misc(state); break;
         default: break;
     }
@@ -270,6 +341,10 @@ static void render_active_jamming(Canvas* canvas, MenuType menu) {
         case MENU_WIFI: canvas_draw_icon(canvas, 0, 0, &I_wifi_jam); break;
         case MENU_BLE: canvas_draw_icon(canvas, 0, 0, &I_ble_jam); break;
         case MENU_ZIGBEE: canvas_draw_icon(canvas, 0, 0, &I_zigbee_jam); break;
+        case MENU_NIGHTFALL:
+            canvas_set_font(canvas, FontPrimary);
+            canvas_draw_str_aligned(canvas, 64, 32, AlignCenter, AlignCenter, "Nightfall's Jamming");
+            break;
         default: break;
     }
 }
@@ -282,16 +357,35 @@ static void render_menu_icons(Canvas* canvas, MenuType menu) {
         case MENU_BLE: canvas_draw_icon(canvas, 0, 0, &I_ble_jammer); break;
         case MENU_ZIGBEE: canvas_draw_icon(canvas, 0, 0, &I_zigbee_jammer); break;
         case MENU_MISC: canvas_draw_icon(canvas, 0, 0, &I_misc_jammer); break;
+        case MENU_NIGHTFALL:
+            canvas_set_font(canvas, FontPrimary);
+            canvas_draw_str_aligned(canvas, 64, 32, AlignCenter, AlignCenter, "Nightfall's Options");
+            break;
         default: break;
     }
+}
+
+static void render_nightfall_menu(Canvas* canvas, NightfallMenuType menu) {
+    static const char* names[NIGHTFALL_COUNT] = {
+        "PS4 Gamepad", "PS5 Gamepad", "Xbox Gamepad", "Switch Gamepad", "Wireless Audio", "AirPods/Pro"
+    };
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str_aligned(canvas, 64, 20, AlignCenter, AlignCenter, "Nightfall's Options");
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str_aligned(canvas, 64, 36, AlignCenter, AlignCenter, names[menu]);
+    canvas_draw_str_aligned(canvas, 64, 54, AlignCenter, AlignCenter, "OK: Start  BACK: Exit");
 }
 
 static void render_callback(Canvas* canvas, void* ctx) {
     PluginState* state = ctx;
     canvas_clear(canvas);
     canvas_draw_frame(canvas, 0, 0, 128, 64);
-    
-    if(state->current_menu == MENU_MISC && state->show_jamming_started) {
+    if(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active && state->is_running) {
+        canvas_set_font(canvas, FontPrimary);
+        canvas_draw_str_aligned(canvas, 64, 32, AlignCenter, AlignCenter, "Jamming started");
+    } else if(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active) {
+        render_nightfall_menu(canvas, state->nightfall_menu);
+    } else if(state->current_menu == MENU_MISC && state->show_jamming_started) {
         canvas_set_font(canvas, FontPrimary);
         canvas_draw_str_aligned(canvas, 64, 32, AlignCenter, AlignCenter, "Jamming started");
     }
@@ -351,10 +445,10 @@ static void handle_menu_input(PluginState* state, InputKey key) {
         state->current_menu = (state->current_menu == 0) ? 
             (MENU_COUNT - 1) : (state->current_menu - 1);
     }
-
     state->misc_state = MISC_STATE_IDLE;
     state->wifi_menu_active = false;
     state->wifi_channel_select = false;
+    state->nightfall_menu_active = false;
 }
 
 static void handle_wifi_input(PluginState* state, InputKey key) {
@@ -362,6 +456,17 @@ static void handle_wifi_input(PluginState* state, InputKey key) {
         state->wifi_channel = (state->wifi_channel + 1) % 13;
     } else if(key == InputKeyDown || key == InputKeyLeft) {
         state->wifi_channel = (state->wifi_channel == 0) ? 12 : (state->wifi_channel - 1);
+    }
+}
+
+static void handle_nightfall_menu_input(PluginState* state, InputKey key) {
+    if(key == InputKeyUp || key == InputKeyRight) {
+        state->nightfall_menu = (state->nightfall_menu + 1) % NIGHTFALL_COUNT;
+    } else if(key == InputKeyDown || key == InputKeyLeft) {
+        state->nightfall_menu = (state->nightfall_menu == 0) ? (NIGHTFALL_COUNT - 1) : (state->nightfall_menu - 1);
+    } else if(key == InputKeyBack) {
+        // Always allow exit from submenu
+        state->nightfall_menu_active = false;
     }
 }
 
@@ -385,6 +490,8 @@ int32_t nRF24_jammer_app(void* p) {
     state->misc_stop = 0;
     state->held_key = InputKeyMAX;
     state->hold_counter = 0;
+    state->nightfall_menu_active = false;
+    state->nightfall_menu = NIGHTFALL_PS4;
     
     for(int i = 0; i < 125; i++) drone_channels[i] = i;
     
@@ -439,6 +546,8 @@ int32_t nRF24_jammer_app(void* p) {
                             } else {
                                 state->wifi_mode = (state->wifi_mode + 1) % WIFI_MODE_COUNT;
                             }
+                        } else if(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active) {
+                            handle_nightfall_menu_input(state, InputKeyUp);
                         } else {
                             handle_menu_input(state, InputKeyUp);
                         }
@@ -458,6 +567,8 @@ int32_t nRF24_jammer_app(void* p) {
                                 state->wifi_mode = (state->wifi_mode == 0) ? 
                                     (WIFI_MODE_COUNT - 1) : (state->wifi_mode - 1);
                             }
+                        } else if(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active) {
+                            handle_nightfall_menu_input(state, InputKeyDown);
                         } else {
                             handle_menu_input(state, InputKeyDown);
                         }
@@ -500,6 +611,13 @@ int32_t nRF24_jammer_app(void* p) {
                             } else {
                                 state->wifi_menu_active = true;
                             }
+                        } else if(state->current_menu == MENU_NIGHTFALL) {
+                            if(state->nightfall_menu_active) {
+                                state->is_running = true;
+                                furi_thread_start(state->thread);
+                            } else {
+                                state->nightfall_menu_active = true;
+                            }
                         } else {
                             furi_thread_start(state->thread);
                         }
@@ -512,6 +630,9 @@ int32_t nRF24_jammer_app(void* p) {
                         furi_thread_join(state->thread);
                         if(state->current_menu == MENU_MISC) {
                             state->show_jamming_started = false;
+                        }
+                        if(state->current_menu == MENU_NIGHTFALL) {
+                            state->is_running = false;
                         }
                     } else if(state->current_menu == MENU_MISC) {
                         if(state->misc_state == MISC_STATE_SET_STOP) {
@@ -527,6 +648,8 @@ int32_t nRF24_jammer_app(void* p) {
                         } else {
                             state->wifi_menu_active = false;
                         }
+                    } else if(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active) {
+                        state->nightfall_menu_active = false;
                     } else {
                         running = false;
                     }
@@ -544,6 +667,8 @@ int32_t nRF24_jammer_app(void* p) {
                                 state->wifi_mode = (state->wifi_mode == 0) ? 
                                     (WIFI_MODE_COUNT - 1) : (state->wifi_mode - 1);
                             }
+                        } else if(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active) {
+                            handle_nightfall_menu_input(state, InputKeyLeft);
                         } else {
                             handle_menu_input(state, InputKeyLeft);
                         }
@@ -561,6 +686,8 @@ int32_t nRF24_jammer_app(void* p) {
                             } else {
                                 state->wifi_mode = (state->wifi_mode + 1) % WIFI_MODE_COUNT;
                             }
+                        } else if(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active) {
+                            handle_nightfall_menu_input(state, InputKeyRight);
                         } else {
                             handle_menu_input(state, InputKeyRight);
                         }
@@ -575,6 +702,11 @@ int32_t nRF24_jammer_app(void* p) {
                     state->held_key = InputKeyMAX;
                 }
             }
+        }
+        
+        if(state->is_running && state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active) {
+            // Remove strict key filtering and revert to original event handling logic
+            // Do not intercept or filter keys here; let the main switch/case handle all keys as before
         }
     }
     
