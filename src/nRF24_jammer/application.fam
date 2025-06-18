@@ -1,0 +1,20 @@
+App(
+    appid="fz_nrf24_jammer",
+    name="nRF24 Jammer",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="nRF24_jammer_app",
+    stack_size=1024,
+    order=60,
+    fap_icon="icon.png",
+    fap_category="GPIO",
+    fap_author="@W0rthlessS0ul",
+    fap_icon_assets="images",
+    fap_private_libs=[
+        Lib(
+            name="nrf24",
+            sources=[
+                "nrf24.c",
+            ],
+        ),
+    ],
+)
