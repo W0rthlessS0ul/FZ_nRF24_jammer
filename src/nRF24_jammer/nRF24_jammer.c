@@ -576,6 +576,18 @@ int32_t nRF24_jammer_app(void* p) {
                     break;
                     
                 case InputKeyOk:
+                    if(state->is_running) {
+                        // Fix: Allow OK to stop jamming and return to menu, just like BACK
+                        state->is_stop = true;
+                        furi_thread_join(state->thread);
+                        if(state->current_menu == MENU_MISC) {
+                            state->show_jamming_started = false;
+                        }
+                        if(state->current_menu == MENU_NIGHTFALL) {
+                            state->is_running = false;
+                        }
+                        break;
+                    }
                     if(!nrf24_check_connected(nrf24)) {
                         notification_message(state->notifications, &error_sequence);
                     } else if(!state->is_running) {
