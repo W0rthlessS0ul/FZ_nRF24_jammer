@@ -7,6 +7,14 @@
 ## Credits to W0rthlessS0ul
 Ref to original post:  **[here](https://github.com/W0rthlessS0ul/FZ_nRF24_jammer)**
 
+# DISCLAIMER:
+
+This repository contains software that may interfere with radio connections.
+
+Attention: The deliberate jamming of radio connections might be illegal in your country and in many other countries. This tool is provided for research and experimental purposes only. Using it in practice is prohibited unless expressly authorised by the relevant authorities.
+
+The developer assumes no liability for any damages or legal consequences arising from the use of this software.
+
 ---
 
 ## ✨ Newly Added Features
