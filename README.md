@@ -69,10 +69,12 @@ To bring this project to life, you will need the following components:
 - **Back button** short press → Exiting the app
 
 ### 📡 Misc Jammer
-- **Up or Right button** short press → Channel +1
-- **Up or Right button** long press → Continuous channel +1 (every 100ms)
-- **Down or Left button** short press → Channel -1
-- **Down or Left button** long press → Continuous channel -1 (every 100ms)
+- **Up button** short press → Channel +1
+- **Up button** long press → Continuous channel +1 (every 100ms)
+- **Down button** short press → Channel -1
+- **Down button** long press → Continuous channel -1 (every 100ms)
+- **Right button** short press → Switch jamming mode
+- **Left button** short press → Switch jamming mode
 - **OK button** short press → Select channel
 - **Back button** short press → Back to the last selected subject
 

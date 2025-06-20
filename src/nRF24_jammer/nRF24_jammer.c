@@ -33,6 +33,12 @@ typedef enum {
     MISC_STATE_ERROR,
 } MiscState;
 
+typedef enum {
+    MISC_MODE_CHANNEL_SWITCHING,
+    MISC_MODE_PACKET_SENDING,
+    MISC_MODE_COUNT
+} MiscMode;
+
 typedef struct {
     FuriMutex* mutex;
     NotificationApp* notifications;
@@ -48,6 +54,7 @@ typedef struct {
     MenuType current_menu;
     WifiMode wifi_mode;
     MiscState misc_state;
+    MiscMode misc_mode;
     uint8_t wifi_channel;
     uint8_t misc_start;
     uint8_t misc_stop;
@@ -90,12 +97,13 @@ static void jam_bluetooth(PluginState* state) {
     nrf24_startConstCarrier(nrf24, 7, 0);
     
     while(!state->is_stop) {
-        for(int i = 0; i < bluetooth_channels_count && !state->is_stop; i++) {
+        for(uint8_t i = 0; i < bluetooth_channels_count && !state->is_stop; i++) {
             nrf24_write_reg(nrf24, REG_RF_CH, bluetooth_channels[i]);
         }
     }
     
     nrf24_stopConstCarrier(nrf24);
+    nrf24_set_idle(nrf24);
 }
 
 static void jam_drone(PluginState* state) {
@@ -103,12 +111,13 @@ static void jam_drone(PluginState* state) {
     nrf24_startConstCarrier(nrf24, 7, 0);
     
     while(!state->is_stop) {
-        for(int i = 0; i < drone_channels_count && !state->is_stop; i++) {
+        for(uint8_t i = 0; i < drone_channels_count && !state->is_stop; i++) {
             nrf24_write_reg(nrf24, REG_RF_CH, drone_channels[i]);
         }
     }
     
     nrf24_stopConstCarrier(nrf24);
+    nrf24_set_idle(nrf24);
 }
 
 static void jam_ble(PluginState* state) {
@@ -124,24 +133,48 @@ static void jam_ble(PluginState* state) {
     nrf24_set_tx_mode(nrf24);
     
     while(!state->is_stop) {
-        for(int i = 0; i < ble_channels_count && !state->is_stop; i++) {
+        for(uint8_t i = 0; i < ble_channels_count && !state->is_stop; i++) {
             nrf24_write_reg(nrf24, REG_RF_CH, ble_channels[i]);
             nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
         }
     }
+
+    nrf24_set_idle(nrf24);
 }
 
 static void jam_misc(PluginState* state) {
-    nrf24_set_tx_mode(nrf24);
-    nrf24_startConstCarrier(nrf24, 7, 0);
+    if(state->misc_mode == MISC_MODE_CHANNEL_SWITCHING){
+        nrf24_set_tx_mode(nrf24);
+        nrf24_startConstCarrier(nrf24, 7, 0);
     
-    while(!state->is_stop) {
-        for(int ch = state->misc_start; ch < state->misc_stop; ch++) {
-            nrf24_write_reg(nrf24, REG_RF_CH, ch);
+        while(!state->is_stop) {
+            for(uint8_t ch = state->misc_start; ch < state->misc_stop; ch++) {
+                nrf24_write_reg(nrf24, REG_RF_CH, ch);
+            }
+        }
+    
+        nrf24_stopConstCarrier(nrf24);
+    } else {
+        uint8_t mac[] = {0xFF, 0xFF};
+        nrf24_configure(nrf24, 2, mac, mac, 2, state->misc_start, true, true);
+
+        uint8_t setup;
+        nrf24_read_reg(nrf24, REG_RF_SETUP, &setup, 1);
+        setup = (setup & 0xF8) | 7;
+        nrf24_write_reg(nrf24, REG_RF_SETUP, setup);
+
+        uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
+        nrf24_set_tx_mode(nrf24);
+
+        while(!state->is_stop) {
+            for(uint8_t ch = state->misc_start; ch < state->misc_stop; ch++) {
+                nrf24_write_reg(nrf24, REG_RF_CH, ch);
+                nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
+            }
         }
     }
-    
-    nrf24_stopConstCarrier(nrf24);
+
+    nrf24_set_idle(nrf24);
 }
 
 static void jam_wifi(PluginState* state) {
@@ -158,19 +191,21 @@ static void jam_wifi(PluginState* state) {
 
     while(!state->is_stop) {
         if(state->wifi_mode == WIFI_MODE_ALL) {
-            for(int channel = 0; channel < 13 && !state->is_stop; channel++) {
-                for(int ch = (channel * 5) + 1; ch < (channel * 5) + 23 && !state->is_stop; ch++) {
+            for(uint8_t channel = 0; channel < 13 && !state->is_stop; channel++) {
+                for(uint8_t ch = (channel * 5) + 1; ch < (channel * 5) + 23 && !state->is_stop; ch++) {
                     nrf24_write_reg(nrf24, REG_RF_CH, ch);
                     nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
                 }
             }
         } else {
-            for(int ch = (state->wifi_channel * 5) + 1; ch < (state->wifi_channel * 5) + 23 && !state->is_stop; ch++) {
+            for(uint8_t ch = (state->wifi_channel * 5) + 1; ch < (state->wifi_channel * 5) + 23 && !state->is_stop; ch++) {
                 nrf24_write_reg(nrf24, REG_RF_CH, ch);
                 nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
             }
         }
     }
+
+    nrf24_set_idle(nrf24);
 }
 
 static void jam_zigbee(PluginState* state) {
@@ -186,13 +221,15 @@ static void jam_zigbee(PluginState* state) {
     nrf24_set_tx_mode(nrf24);
 
     while(!state->is_stop) {
-        for(int i = 0; i < zigbee_channels_count && !state->is_stop; i++) {
-            for(int ch = 5 + 5 * (zigbee_channels[i] - 11); ch < (5 + 5 * (zigbee_channels[i] - 11)) + 6 && !state->is_stop; ch++) {
+        for(uint8_t i = 0; i < zigbee_channels_count && !state->is_stop; i++) {
+            for(uint8_t ch = 5 + 5 * (zigbee_channels[i] - 11); ch < (5 + 5 * (zigbee_channels[i] - 11)) + 6 && !state->is_stop; ch++) {
                 nrf24_write_reg(nrf24, REG_RF_CH, ch);
                 nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
             }
         }
     }
+
+    nrf24_set_idle(nrf24);
 }
 
 static int32_t jam_thread(void* ctx) {
@@ -225,18 +262,26 @@ static void render_settings_screen(Canvas* canvas, PluginState* state) {
     if(state->misc_state == MISC_STATE_SET_START) {
         snprintf(buffer, sizeof(buffer), "Start channel: %d", state->misc_start);
         canvas_draw_str_aligned(canvas, 64, 20, AlignCenter, AlignCenter, buffer);
+        
         canvas_set_font(canvas, FontSecondary);
-        canvas_draw_str_aligned(canvas, 64, 35, AlignCenter, AlignCenter, "Press OK to set stop");
+        snprintf(buffer, sizeof(buffer), "Mode: %s", 
+            state->misc_mode == MISC_MODE_CHANNEL_SWITCHING ? "Channel Switching" : "Packet Sending");
+        canvas_draw_str_aligned(canvas, 64, 30, AlignCenter, AlignCenter, buffer);
+        
+        canvas_draw_str_aligned(canvas, 64, 40, AlignCenter, AlignCenter, "Press OK to set stop");
     } else if(state->misc_state == MISC_STATE_SET_STOP) {
         snprintf(buffer, sizeof(buffer), "Start: %d Stop: %d", state->misc_start, state->misc_stop);
         canvas_draw_str_aligned(canvas, 64, 20, AlignCenter, AlignCenter, buffer);
         
+        canvas_set_font(canvas, FontSecondary);
+        snprintf(buffer, sizeof(buffer), "Mode: %s", 
+            state->misc_mode == MISC_MODE_CHANNEL_SWITCHING ? "Channel Switching" : "Packet Sending");
+        canvas_draw_str_aligned(canvas, 64, 30, AlignCenter, AlignCenter, buffer);
+        
         if(state->misc_stop > state->misc_start) {
-            canvas_set_font(canvas, FontSecondary);
-            canvas_draw_str_aligned(canvas, 64, 35, AlignCenter, AlignCenter, "Press OK to start");
+            canvas_draw_str_aligned(canvas, 64, 40, AlignCenter, AlignCenter, "Press OK to start");
         } else {
-            canvas_set_font(canvas, FontSecondary);
-            canvas_draw_str_aligned(canvas, 64, 35, AlignCenter, AlignCenter, "Error: Start < Stop");
+            canvas_draw_str_aligned(canvas, 64, 40, AlignCenter, AlignCenter, "Error: Start < Stop");
         }
     } else if(state->misc_state == MISC_STATE_ERROR) {
         canvas_set_font(canvas, FontPrimary);
@@ -380,13 +425,14 @@ int32_t nRF24_jammer_app(void* p) {
     state->current_menu = MENU_BLUETOOTH;
     state->wifi_mode = WIFI_MODE_ALL;
     state->misc_state = MISC_STATE_IDLE;
+    state->misc_mode = MISC_MODE_CHANNEL_SWITCHING;
     state->wifi_channel = 0;
     state->misc_start = 0;
     state->misc_stop = 0;
     state->held_key = InputKeyMAX;
     state->hold_counter = 0;
     
-    for(int i = 0; i < 125; i++) drone_channels[i] = i;
+    for(uint8_t i = 0; i < 125; i++) drone_channels[i] = i;
     
     if(!furi_hal_power_is_otg_enabled()) furi_hal_power_enable_otg();
 
@@ -536,7 +582,7 @@ int32_t nRF24_jammer_app(void* p) {
                     state->hold_counter = 0;
                     if(!state->is_running) {
                         if(state->current_menu == MENU_MISC && state->misc_state != MISC_STATE_IDLE) {
-                            handle_settings_input(state, InputKeyLeft);
+                            state->misc_mode = (state->misc_mode == 0) ? (MISC_MODE_COUNT - 1) : (state->misc_mode - 1);
                         } else if(state->current_menu == MENU_WIFI && state->wifi_menu_active) {
                             if(state->wifi_channel_select) {
                                 handle_wifi_input(state, InputKeyLeft);
@@ -549,12 +595,13 @@ int32_t nRF24_jammer_app(void* p) {
                         }
                     }
                     break;
+
                 case InputKeyRight:
                     state->held_key = InputKeyRight;
                     state->hold_counter = 0;
                     if(!state->is_running) {
                         if(state->current_menu == MENU_MISC && state->misc_state != MISC_STATE_IDLE) {
-                            handle_settings_input(state, InputKeyRight);
+                            state->misc_mode = (state->misc_mode + 1) % MISC_MODE_COUNT;
                         } else if(state->current_menu == MENU_WIFI && state->wifi_menu_active) {
                             if(state->wifi_channel_select) {
                                 handle_wifi_input(state, InputKeyRight);
