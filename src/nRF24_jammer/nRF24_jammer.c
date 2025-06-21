@@ -546,11 +546,6 @@ static void handle_nightfall_menu_input(PluginState* state, InputKey key) {
     } else if(key == InputKeyLeft || key == InputKeyRight) {
         // Optional: keine Aktion oder wie gehabt
     } else if(key == InputKeyBack) {
-    if(key == InputKeyUp || key == InputKeyRight) {
-        state->nightfall_menu = (state->nightfall_menu + 1) % NIGHTFALL_COUNT;
-    } else if(key == InputKeyDown || key == InputKeyLeft) {
-        state->nightfall_menu = (state->nightfall_menu == 0) ? (NIGHTFALL_COUNT - 1) : (state->nightfall_menu - 1);
-    } else if(key == InputKeyBack) {
         // Always allow exit from submenu
         state->nightfall_menu_active = false;
     }
