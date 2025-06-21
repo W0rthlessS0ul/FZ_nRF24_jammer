@@ -443,6 +443,11 @@ static void render_nightfall_menu(Canvas* canvas, NightfallMenuType menu) {
             canvas_draw_str(canvas, 18, y, names[idx]);
         }
     }
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str_aligned(canvas, 64, 20, AlignCenter, AlignCenter, "Nightfall's Options");
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str_aligned(canvas, 64, 36, AlignCenter, AlignCenter, names[menu]);
+    canvas_draw_str_aligned(canvas, 64, 54, AlignCenter, AlignCenter, "OK: Start  BACK: Exit");
 }
 
 static void render_callback(Canvas* canvas, void* ctx) {
@@ -452,6 +457,7 @@ static void render_callback(Canvas* canvas, void* ctx) {
     if(!(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active && !state->is_running)) {
         canvas_draw_frame(canvas, 0, 0, 128, 64);
     }
+    canvas_draw_frame(canvas, 0, 0, 128, 64);
     if(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active && state->is_running) {
         canvas_set_font(canvas, FontPrimary);
         canvas_draw_str_aligned(canvas, 64, 32, AlignCenter, AlignCenter, "Jamming started");
@@ -532,6 +538,7 @@ static void handle_wifi_input(PluginState* state, InputKey key) {
 }
 
 static void handle_nightfall_menu_input(PluginState* state, InputKey key) {
+
     if(key == InputKeyUp) {
         state->nightfall_menu = (state->nightfall_menu == 0) ? (NIGHTFALL_COUNT - 1) : (state->nightfall_menu - 1);
     } else if(key == InputKeyDown) {
@@ -539,6 +546,12 @@ static void handle_nightfall_menu_input(PluginState* state, InputKey key) {
     } else if(key == InputKeyLeft || key == InputKeyRight) {
         // Optional: keine Aktion oder wie gehabt
     } else if(key == InputKeyBack) {
+    if(key == InputKeyUp || key == InputKeyRight) {
+        state->nightfall_menu = (state->nightfall_menu + 1) % NIGHTFALL_COUNT;
+    } else if(key == InputKeyDown || key == InputKeyLeft) {
+        state->nightfall_menu = (state->nightfall_menu == 0) ? (NIGHTFALL_COUNT - 1) : (state->nightfall_menu - 1);
+    } else if(key == InputKeyBack) {
+        // Always allow exit from submenu
         state->nightfall_menu_active = false;
     }
 }
