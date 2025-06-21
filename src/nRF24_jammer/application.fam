@@ -1,6 +1,6 @@
 App(
-    appid="fz_nrf24_jammer",
-    name="nRF24 Jammer",
+    appid="fz_nf_nrf24_jammer",
+    name="[NRF24]Jammer+",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="nRF24_jammer_app",
     stack_size=1024,
