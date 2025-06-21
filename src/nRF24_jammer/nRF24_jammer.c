@@ -402,17 +402,45 @@ static void render_nightfall_menu(Canvas* canvas, NightfallMenuType menu) {
     static const char* names[NIGHTFALL_COUNT] = {
         "PS4 Gamepad", "PS5 Gamepad", "Xbox Gamepad", "Switch Gamepad", "Wireless Audio", "AirPods/Pro"
     };
+    const int visible_count = 4; // Wie im File-Explorer
+    int scroll_offset = 0;
+    // Berechne scroll_offset so, dass Auswahl immer sichtbar bleibt
+    if(menu < visible_count/2) {
+        scroll_offset = 0;
+    } else if(menu > NIGHTFALL_COUNT - 1 - visible_count/2) {
+        scroll_offset = NIGHTFALL_COUNT - visible_count;
+    } else {
+        scroll_offset = menu - visible_count/2;
+    }
+    if(scroll_offset < 0) scroll_offset = 0;
+    if(scroll_offset > NIGHTFALL_COUNT - visible_count) scroll_offset = NIGHTFALL_COUNT - visible_count;
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str_aligned(canvas, 64, 20, AlignCenter, AlignCenter, "Nightfall's Options");
+    canvas_draw_str_aligned(canvas, 64, 8, AlignCenter, AlignCenter, "Nightfall's Options");
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str_aligned(canvas, 64, 36, AlignCenter, AlignCenter, names[menu]);
-    canvas_draw_str_aligned(canvas, 64, 54, AlignCenter, AlignCenter, "OK: Start  BACK: Exit");
+    // Abstand wie am Anfang: 12 Pixel pro Eintrag
+    for(int i = 0; i < visible_count; i++) {
+        int idx = scroll_offset + i;
+        if(idx >= NIGHTFALL_COUNT) break;
+        int y = 22 + i * 12;
+        if(idx == menu) {
+            // Markiere die aktuelle Auswahl
+            canvas_draw_box(canvas, 12, y - 8, 104, 12);
+            canvas_set_color(canvas, ColorWhite);
+            canvas_draw_str(canvas, 18, y, names[idx]);
+            canvas_set_color(canvas, ColorBlack);
+        } else {
+            canvas_draw_str(canvas, 18, y, names[idx]);
+        }
+    }
 }
 
 static void render_callback(Canvas* canvas, void* ctx) {
     PluginState* state = ctx;
     canvas_clear(canvas);
-    canvas_draw_frame(canvas, 0, 0, 128, 64);
+    // Rahmen nur zeichnen, wenn NICHT im Nightfall-Feature-Auswahlmenü
+    if(!(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active && !state->is_running)) {
+        canvas_draw_frame(canvas, 0, 0, 128, 64);
+    }
     if(state->current_menu == MENU_NIGHTFALL && state->nightfall_menu_active && state->is_running) {
         canvas_set_font(canvas, FontPrimary);
         canvas_draw_str_aligned(canvas, 64, 32, AlignCenter, AlignCenter, "Jamming started");
@@ -493,12 +521,13 @@ static void handle_wifi_input(PluginState* state, InputKey key) {
 }
 
 static void handle_nightfall_menu_input(PluginState* state, InputKey key) {
-    if(key == InputKeyUp || key == InputKeyRight) {
-        state->nightfall_menu = (state->nightfall_menu + 1) % NIGHTFALL_COUNT;
-    } else if(key == InputKeyDown || key == InputKeyLeft) {
+    if(key == InputKeyUp) {
         state->nightfall_menu = (state->nightfall_menu == 0) ? (NIGHTFALL_COUNT - 1) : (state->nightfall_menu - 1);
+    } else if(key == InputKeyDown) {
+        state->nightfall_menu = (state->nightfall_menu + 1) % NIGHTFALL_COUNT;
+    } else if(key == InputKeyLeft || key == InputKeyRight) {
+        // Optional: keine Aktion oder wie gehabt
     } else if(key == InputKeyBack) {
-        // Always allow exit from submenu
         state->nightfall_menu_active = false;
     }
 }
