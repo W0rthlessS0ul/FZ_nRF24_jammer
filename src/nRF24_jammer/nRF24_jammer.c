@@ -201,12 +201,18 @@ static void jam_misc(PluginState* state) {
 }
 
 static void jam_wifi(PluginState* state) {
+    // Für maximale Effizienz: 
+    // - WIFI_MODE_ALL: Jammen von RF_CH 1 bis 83 (2402–2483 MHz, deckt alle 2,4 GHz WiFi-Kanäle weltweit ab)
+    // - WIFI_MODE_SELECT: Jammen von Mittenfrequenz ±10 (insgesamt 21 Werte) für den gewählten Kanal
+    static const uint8_t wifi_rf_channels[13] = {
+        1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56, 61
+    };
     uint8_t mac[] = {0xFF, 0xFF};
     nrf24_configure(nrf24, 2, mac, mac, 2, 1, true, true);
 
     uint8_t setup;
     nrf24_read_reg(nrf24, REG_RF_SETUP, &setup, 1);
-    setup = (setup & 0xF8) | 7;
+    setup = (setup & 0xF8) | 7; // Maximale Sendeleistung
     nrf24_write_reg(nrf24, REG_RF_SETUP, setup);
 
     uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
@@ -214,19 +220,24 @@ static void jam_wifi(PluginState* state) {
 
     while(!state->is_stop) {
         if(state->wifi_mode == WIFI_MODE_ALL) {
-            for(int channel = 0; channel < 13 && !state->is_stop; channel++) {
-                for(int ch = (channel * 5) + 1; ch < (channel * 5) + 23 && !state->is_stop; ch++) {
+            // Jammen von RF_CH 1 bis 83 (WiFi 2,4 GHz Bereich)
+            for(int ch = 1; ch <= 83 && !state->is_stop; ch++) {
+                nrf24_write_reg(nrf24, REG_RF_CH, ch);
+                nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
+            }
+        } else {
+            // Jammen von Mittenfrequenz ±10 (insgesamt 21 Werte)
+            int base_ch = wifi_rf_channels[state->wifi_channel];
+            for(int offset = -10; offset <= 10 && !state->is_stop; offset++) {
+                int ch = base_ch + offset;
+                if(ch >= 0 && ch <= 125) {
                     nrf24_write_reg(nrf24, REG_RF_CH, ch);
                     nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
                 }
             }
-        } else {
-            for(int ch = (state->wifi_channel * 5) + 1; ch < (state->wifi_channel * 5) + 23 && !state->is_stop; ch++) {
-                nrf24_write_reg(nrf24, REG_RF_CH, ch);
-                nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
-            }
         }
     }
+    nrf24_set_idle(nrf24);
 }
 
 static void jam_zigbee(PluginState* state) {
