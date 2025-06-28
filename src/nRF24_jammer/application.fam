@@ -4,10 +4,8 @@ App(
     apptype=FlipperAppType.EXTERNAL,
     entry_point="nRF24_jammer_app",
     stack_size=1024,
-    order=60,
     fap_icon="icon.png",
     fap_category="GPIO",
-    fap_author="@W0rthlessS0ul",
     fap_icon_assets="images",
     fap_private_libs=[
         Lib(
@@ -17,4 +15,7 @@ App(
             ],
         ),
     ],
+    fap_author="W0rthlessS0ul",
+    fap_weburl="https://github.com/W0rthlessS0ul/FZ_nRF24_jammer",
+    fap_version="1.2.0",
 )

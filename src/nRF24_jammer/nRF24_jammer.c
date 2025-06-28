@@ -61,6 +61,10 @@ typedef struct {
     
     InputKey held_key;
     uint32_t hold_counter;
+    uint32_t last_up_press_time;
+    uint32_t last_down_press_time;
+    uint8_t up_press_count;
+    uint8_t down_press_count;
 } PluginState;
 
 typedef enum {
@@ -368,24 +372,53 @@ static void input_callback(InputEvent* event, void* ctx) {
     furi_message_queue_put(queue, &plugin_event, FuriWaitForever);
 }
 
-static void handle_settings_input(PluginState* state, InputKey key) {
-    if(key == InputKeyUp || key == InputKeyRight) {
-        if(state->misc_state == MISC_STATE_SET_START) {
-            if(state->misc_start < 125) state->misc_start++;
-        } else if(state->misc_state == MISC_STATE_SET_STOP) {
-            if(state->misc_stop < 125) state->misc_stop++;
+static void handle_settings_input(PluginState* state, InputKey key, bool is_hold) {
+    uint8_t increment = 1;
+
+    if(!is_hold) {
+        if(key == InputKeyUp) {
+            uint32_t now = furi_get_tick();
+            if(now - state->last_up_press_time < 200) {
+                state->up_press_count++;
+            } else {
+                state->up_press_count = 1;
+            }
+            state->last_up_press_time = now;
+            
+            if(state->up_press_count == 2) increment = 9;
+            else if(state->up_press_count >= 3) increment = 90;
+        } 
+        else if(key == InputKeyDown) {
+            uint32_t now = furi_get_tick();
+            if(now - state->last_down_press_time < 200) {
+                state->down_press_count++;
+            } else {
+                state->down_press_count = 1;
+            }
+            state->last_down_press_time = now;
+            
+            if(state->down_press_count == 2) increment = 9;
+            else if(state->down_press_count >= 3) increment = 90;
         }
-    } else if(key == InputKeyDown || key == InputKeyLeft) {
+    }
+
+    if(key == InputKeyUp) {
         if(state->misc_state == MISC_STATE_SET_START) {
-            if(state->misc_start > 0) state->misc_start--;
+            state->misc_start = MIN(state->misc_start + increment, 125);
         } else if(state->misc_state == MISC_STATE_SET_STOP) {
-            if(state->misc_stop > 0) state->misc_stop--;
+            state->misc_stop = MIN(state->misc_stop + increment, 125);
+        }
+    } 
+    else if(key == InputKeyDown) {
+        if(state->misc_state == MISC_STATE_SET_START) {
+            state->misc_start = MAX(state->misc_start - increment, 0);
+        } else if(state->misc_state == MISC_STATE_SET_STOP) {
+            state->misc_stop = MAX(state->misc_stop - increment, 0);
         }
     }
 
     if(state->misc_state == MISC_STATE_SET_STOP && state->misc_stop <= state->misc_start) {
-        state->misc_stop = state->misc_start + 1;
-        if(state->misc_stop > 125) state->misc_stop = 125;
+        state->misc_stop = MIN(state->misc_start + 1, 125);
     }
 }
 
@@ -403,10 +436,17 @@ static void handle_menu_input(PluginState* state, InputKey key) {
 }
 
 static void handle_wifi_input(PluginState* state, InputKey key) {
-    if(key == InputKeyUp || key == InputKeyRight) {
-        state->wifi_channel = (state->wifi_channel + 1) % 13;
-    } else if(key == InputKeyDown || key == InputKeyLeft) {
-        state->wifi_channel = (state->wifi_channel == 0) ? 12 : (state->wifi_channel - 1);
+    switch(key) {
+        case InputKeyUp:
+        case InputKeyRight:
+            state->wifi_channel = (state->wifi_channel + 1) % 13;
+            break;
+        case InputKeyDown:
+        case InputKeyLeft:
+            state->wifi_channel = (state->wifi_channel == 0) ? 12 : (state->wifi_channel - 1);
+            break;
+        default:
+            break;
     }
 }
 
@@ -431,6 +471,10 @@ int32_t nRF24_jammer_app(void* p) {
     state->misc_stop = 0;
     state->held_key = InputKeyMAX;
     state->hold_counter = 0;
+    state->last_up_press_time = 0;
+    state->last_down_press_time = 0;
+    state->up_press_count = 0;
+    state->down_press_count = 0;
     
     for(uint8_t i = 0; i < 125; i++) drone_channels[i] = i;
     
@@ -460,11 +504,16 @@ int32_t nRF24_jammer_app(void* p) {
                 state->hold_counter++;
                 if(state->hold_counter >= 3) {
                     if(state->current_menu == MENU_MISC && state->misc_state != MISC_STATE_IDLE) {
-                        handle_settings_input(state, state->held_key);
-                        view_port_update(state->view_port);
+                        if(state->held_key == InputKeyUp || state->held_key == InputKeyDown) {
+                            handle_settings_input(state, state->held_key, true);
+                            view_port_update(state->view_port);
+                        }
                     } else if(state->current_menu == MENU_WIFI && state->wifi_channel_select) {
-                        handle_wifi_input(state, state->held_key);
-                        view_port_update(state->view_port);
+                        if(state->held_key == InputKeyUp || state->held_key == InputKeyDown || 
+                           state->held_key == InputKeyLeft || state->held_key == InputKeyRight) {
+                            handle_wifi_input(state, state->held_key);
+                            view_port_update(state->view_port);
+                        }
                     }
                 }
             }
@@ -478,7 +527,8 @@ int32_t nRF24_jammer_app(void* p) {
                     state->hold_counter = 0;
                     if(!state->is_running) {
                         if(state->current_menu == MENU_MISC && state->misc_state != MISC_STATE_IDLE) {
-                            handle_settings_input(state, InputKeyUp);
+                            handle_settings_input(state, InputKeyUp, false);
+                            view_port_update(state->view_port);
                         } else if(state->current_menu == MENU_WIFI && state->wifi_menu_active) {
                             if(state->wifi_channel_select) {
                                 handle_wifi_input(state, InputKeyUp);
@@ -490,13 +540,14 @@ int32_t nRF24_jammer_app(void* p) {
                         }
                     }
                     break;
-                    
+
                 case InputKeyDown:
                     state->held_key = InputKeyDown;
                     state->hold_counter = 0;
                     if(!state->is_running) {
                         if(state->current_menu == MENU_MISC && state->misc_state != MISC_STATE_IDLE) {
-                            handle_settings_input(state, InputKeyDown);
+                            handle_settings_input(state, InputKeyDown, false);
+                            view_port_update(state->view_port);
                         } else if(state->current_menu == MENU_WIFI && state->wifi_menu_active) {
                             if(state->wifi_channel_select) {
                                 handle_wifi_input(state, InputKeyDown);
@@ -518,9 +569,10 @@ int32_t nRF24_jammer_app(void* p) {
                             if(state->misc_state == MISC_STATE_IDLE) {
                                 state->misc_state = MISC_STATE_SET_START;
                                 state->misc_start = 0;
-                                state->misc_stop = 0;
+                                state->misc_stop = 1;
                             } else if(state->misc_state == MISC_STATE_SET_START) {
                                 state->misc_state = MISC_STATE_SET_STOP;
+                                state->misc_stop = MIN(state->misc_start + 1, 125);
                             } else if(state->misc_state == MISC_STATE_SET_STOP) {
                                 if(state->misc_stop > state->misc_start) {
                                     state->show_jamming_started = true;

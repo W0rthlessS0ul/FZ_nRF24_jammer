@@ -71,8 +71,12 @@ To bring this project to life, you will need the following components:
 ### 📡 Misc Jammer
 - **Up button** short press → Channel +1
 - **Up button** long press → Continuous channel +1 (every 100ms)
+- **Up button** double press → channel +10
+- **Up button** triple press → channel +100
 - **Down button** short press → Channel -1
 - **Down button** long press → Continuous channel -1 (every 100ms)
+- **Down button** double press → channel -10
+- **Down button** triple press → channel -100
 - **Right button** short press → Switch jamming mode
 - **Left button** short press → Switch jamming mode
 - **OK button** short press → Select channel
