@@ -134,7 +134,10 @@ uint8_t nrf24_set_rate(FuriHalSpiBusHandle* handle, uint32_t rate) {
 }
 
 void nrf24_startConstCarrier(FuriHalSpiBusHandle* handle, uint8_t level, uint8_t channel) {
-    nrf24_set_idle(handle);
+    nrf24_deinit();
+    nrf24_init();
+
+    nrf24_set_tx_mode(handle);
 
     nrf24_write_reg(handle, REG_RF_CH, channel);
 
@@ -165,8 +168,6 @@ void nrf24_startConstCarrier(FuriHalSpiBusHandle* handle, uint8_t level, uint8_t
 }
 
 void nrf24_stopConstCarrier(FuriHalSpiBusHandle* handle) {
-    nrf24_set_idle(handle);
-
     uint8_t setup;
     nrf24_read_reg(handle, REG_RF_SETUP, &setup, 1);
     setup &= ~(NRF24_CONT_WAVE | NRF24_PLL_LOCK);

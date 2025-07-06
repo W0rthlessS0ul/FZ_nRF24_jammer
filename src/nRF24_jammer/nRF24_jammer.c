@@ -97,8 +97,10 @@ static const int ble_channels_count = sizeof(ble_channels) / sizeof(ble_channels
 static const int zigbee_channels_count = sizeof(zigbee_channels) / sizeof(zigbee_channels[0]);
 
 static void jam_bluetooth(PluginState* state) {
+    nrf24_deinit();
+    nrf24_init();
     nrf24_set_tx_mode(nrf24);
-    nrf24_startConstCarrier(nrf24, 7, 0);
+    nrf24_startConstCarrier(nrf24, 7, 45);
     
     while(!state->is_stop) {
         for(uint8_t i = 0; i < bluetooth_channels_count && !state->is_stop; i++) {
@@ -107,12 +109,13 @@ static void jam_bluetooth(PluginState* state) {
     }
     
     nrf24_stopConstCarrier(nrf24);
-    nrf24_set_idle(nrf24);
 }
 
 static void jam_drone(PluginState* state) {
+    nrf24_deinit();
+    nrf24_init();
     nrf24_set_tx_mode(nrf24);
-    nrf24_startConstCarrier(nrf24, 7, 0);
+    nrf24_startConstCarrier(nrf24, 7, 45);
     
     while(!state->is_stop) {
         for(uint8_t i = 0; i < drone_channels_count && !state->is_stop; i++) {
@@ -121,7 +124,6 @@ static void jam_drone(PluginState* state) {
     }
     
     nrf24_stopConstCarrier(nrf24);
-    nrf24_set_idle(nrf24);
 }
 
 static void jam_ble(PluginState* state) {
@@ -142,15 +144,15 @@ static void jam_ble(PluginState* state) {
             nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
         }
     }
-
-    nrf24_set_idle(nrf24);
 }
 
 static void jam_misc(PluginState* state) {
     if(state->misc_mode == MISC_MODE_CHANNEL_SWITCHING){
+        nrf24_deinit();
+        nrf24_init();
         nrf24_set_tx_mode(nrf24);
-        nrf24_startConstCarrier(nrf24, 7, 0);
-    
+        nrf24_startConstCarrier(nrf24, 7, 45);
+        
         while(!state->is_stop) {
             for(uint8_t ch = state->misc_start; ch < state->misc_stop; ch++) {
                 nrf24_write_reg(nrf24, REG_RF_CH, ch);
@@ -177,8 +179,6 @@ static void jam_misc(PluginState* state) {
             }
         }
     }
-
-    nrf24_set_idle(nrf24);
 }
 
 static void jam_wifi(PluginState* state) {
@@ -208,8 +208,6 @@ static void jam_wifi(PluginState* state) {
             }
         }
     }
-
-    nrf24_set_idle(nrf24);
 }
 
 static void jam_zigbee(PluginState* state) {
@@ -232,8 +230,6 @@ static void jam_zigbee(PluginState* state) {
             }
         }
     }
-
-    nrf24_set_idle(nrf24);
 }
 
 static int32_t jam_thread(void* ctx) {
@@ -251,7 +247,6 @@ static int32_t jam_thread(void* ctx) {
         default: break;
     }
 
-    nrf24_set_idle(nrf24);
     state->is_running = false;
     if(state->current_menu == MENU_MISC) {
         state->show_jamming_started = false;
@@ -489,7 +484,7 @@ int32_t nRF24_jammer_app(void* p) {
     
     state->thread = furi_thread_alloc_ex("nRFJammer", 1024, jam_thread, state);
     nrf24_init();
-    
+
     PluginEvent event;
     bool running = true;
     uint32_t last_tick = furi_get_tick();
