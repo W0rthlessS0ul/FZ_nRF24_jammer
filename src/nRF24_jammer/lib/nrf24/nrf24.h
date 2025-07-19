@@ -55,12 +55,20 @@ extern "C" {
 #define NRF24_EN_CRC (1 << 3)
 
 #define nrf24_TIMEOUT 500
-#define nrf24_CE_PIN &gpio_ext_pb2
-// FuriHalSpiBusHandle* nrf24_HANDLE = (FuriHalSpiBusHandle*) &furi_hal_spi_bus_handle_external;
-#define nrf24_HANDLE (FuriHalSpiBusHandle*) &furi_hal_spi_bus_handle_external
+
+typedef struct {
+    FuriHalSpiBusHandle* spi_handle;
+    const GpioPin* ce_pin;
+    const GpioPin* cs_pin;
+    bool initialized;
+} nrf24_device_t;
+
+extern uint8_t nrf24_spi_users_count;
+extern nrf24_device_t nrf24_hspi;
+extern nrf24_device_t nrf24_vspi;
 
 void nrf24_spi_trx(
-    FuriHalSpiBusHandle* handle,
+    nrf24_device_t* device,
     uint8_t* tx,
     uint8_t* rx,
     uint8_t size,
@@ -76,7 +84,7 @@ void nrf24_spi_trx(
  *
  * @return     device status
  */
-uint8_t nrf24_write_reg(FuriHalSpiBusHandle* handle, uint8_t reg, uint8_t data);
+uint8_t nrf24_write_reg(nrf24_device_t* device, uint8_t reg, uint8_t data);
 
 /** Write buffer to device register
  *
@@ -87,7 +95,7 @@ uint8_t nrf24_write_reg(FuriHalSpiBusHandle* handle, uint8_t reg, uint8_t data);
  *
  * @return     device status
  */
-uint8_t nrf24_write_buf_reg(FuriHalSpiBusHandle* handle, uint8_t reg, uint8_t* data, uint8_t size);
+uint8_t nrf24_write_buf_reg(nrf24_device_t* device, uint8_t reg, uint8_t* data, uint8_t size);
 
 /** Read device register
  *
@@ -97,7 +105,7 @@ uint8_t nrf24_write_buf_reg(FuriHalSpiBusHandle* handle, uint8_t reg, uint8_t* d
  *
  * @return     device status
  */
-uint8_t nrf24_read_reg(FuriHalSpiBusHandle* handle, uint8_t reg, uint8_t* data, uint8_t size);
+uint8_t nrf24_read_reg(nrf24_device_t* device, uint8_t reg, uint8_t* data, uint8_t size);
 
 /** Power up the radio for operation
  * 
@@ -105,7 +113,7 @@ uint8_t nrf24_read_reg(FuriHalSpiBusHandle* handle, uint8_t reg, uint8_t* data, 
  * 
  * @return     device status
  */
-uint8_t nrf24_power_up(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_power_up(nrf24_device_t* device);
 
 /** Power down the radio
  * 
@@ -113,7 +121,7 @@ uint8_t nrf24_power_up(FuriHalSpiBusHandle* handle);
  * 
  * @return     device status
  */
-uint8_t nrf24_set_idle(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_set_idle(nrf24_device_t* device);
 
 
 /** Sets the radio to RX mode
@@ -122,12 +130,12 @@ uint8_t nrf24_set_idle(FuriHalSpiBusHandle* handle);
  * 
  * @return     device status
  */
-uint8_t nrf24_set_rx_mode(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_set_rx_mode(nrf24_device_t* device);
 
 
 
-void nrf24_startConstCarrier(FuriHalSpiBusHandle* handle, uint8_t level, uint8_t channel);
-void nrf24_stopConstCarrier(FuriHalSpiBusHandle* handle);
+void nrf24_startConstCarrier(nrf24_device_t* device, uint8_t level, uint8_t channel);
+void nrf24_stopConstCarrier(nrf24_device_t* device);
 
 
 
@@ -137,7 +145,7 @@ void nrf24_stopConstCarrier(FuriHalSpiBusHandle* handle);
  * 
  * @return     device status
  */
-uint8_t nrf24_set_tx_mode(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_set_tx_mode(nrf24_device_t* device);
 
 /*=============================================================================================================*/
 
@@ -146,12 +154,12 @@ uint8_t nrf24_set_tx_mode(FuriHalSpiBusHandle* handle);
 /** Must call this before using any other nrf24 API
  * 
  */
-void nrf24_init();
+void nrf24_init(nrf24_device_t* device);
 
 /** Must call this when we end using nrf24 device
  * 
  */
-void nrf24_deinit();
+void nrf24_deinit(nrf24_device_t* device);
 
 /** Send flush rx command
  *
@@ -159,7 +167,7 @@ void nrf24_deinit();
  *
  * @return     device status
  */
-uint8_t nrf24_flush_rx(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_flush_rx(nrf24_device_t* device);
 
 /** Send flush tx command
  *
@@ -167,7 +175,7 @@ uint8_t nrf24_flush_rx(FuriHalSpiBusHandle* handle);
  *
  * @return     device status
  */
-uint8_t nrf24_flush_tx(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_flush_tx(nrf24_device_t* device);
 
 /** Gets the RX packet length in data pipe 0
  * 
@@ -175,7 +183,7 @@ uint8_t nrf24_flush_tx(FuriHalSpiBusHandle* handle);
  * 
  * @return     packet length in data pipe 0
  */
-uint8_t nrf24_get_packetlen(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_get_packetlen(nrf24_device_t* device);
 
 /** Sets the RX packet length in data pipe 0
  * 
@@ -184,7 +192,7 @@ uint8_t nrf24_get_packetlen(FuriHalSpiBusHandle* handle);
  * 
  * @return     device status
  */
-uint8_t nrf24_set_packetlen(FuriHalSpiBusHandle* handle, uint8_t len);
+uint8_t nrf24_set_packetlen(nrf24_device_t* device, uint8_t len);
 
 /** Gets configured length of MAC address
  *
@@ -192,7 +200,7 @@ uint8_t nrf24_set_packetlen(FuriHalSpiBusHandle* handle, uint8_t len);
  * 
  * @return     MAC address length
  */
-uint8_t nrf24_get_maclen(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_get_maclen(nrf24_device_t* device);
 
 /** Sets configured length of MAC address
  *
@@ -201,7 +209,7 @@ uint8_t nrf24_get_maclen(FuriHalSpiBusHandle* handle);
  * 
  * @return     MAC address length
  */
-uint8_t nrf24_set_maclen(FuriHalSpiBusHandle* handle, uint8_t maclen);
+uint8_t nrf24_set_maclen(nrf24_device_t* device, uint8_t maclen);
 
 /** Gets the current status flags from the STATUS register
  * 
@@ -209,7 +217,7 @@ uint8_t nrf24_set_maclen(FuriHalSpiBusHandle* handle, uint8_t maclen);
  * 
  * @return     status flags
  */
-uint8_t nrf24_status(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_status(nrf24_device_t* device);
 
 /** Gets the current transfer rate
  * 
@@ -217,7 +225,7 @@ uint8_t nrf24_status(FuriHalSpiBusHandle* handle);
  * 
  * @return     transfer rate in bps
  */
-uint32_t nrf24_get_rate(FuriHalSpiBusHandle* handle);
+uint32_t nrf24_get_rate(nrf24_device_t* device);
 
 /** Sets the transfer rate
  *
@@ -226,7 +234,7 @@ uint32_t nrf24_get_rate(FuriHalSpiBusHandle* handle);
  * 
  * @return     device status
  */
-uint8_t nrf24_set_rate(FuriHalSpiBusHandle* handle, uint32_t rate);
+uint8_t nrf24_set_rate(nrf24_device_t* device, uint32_t rate);
 
 /** Gets the current channel
  * In nrf24, the channel number is multiplied times 1MHz and added to 2400MHz to get the frequency
@@ -235,7 +243,7 @@ uint8_t nrf24_set_rate(FuriHalSpiBusHandle* handle, uint32_t rate);
  * 
  * @return     channel
  */
-uint8_t nrf24_get_chan(FuriHalSpiBusHandle* handle);
+uint8_t nrf24_get_chan(nrf24_device_t* device);
 
 /** Sets the channel
  *
@@ -244,7 +252,7 @@ uint8_t nrf24_get_chan(FuriHalSpiBusHandle* handle);
  * 
  * @return     device status
  */
-uint8_t nrf24_set_chan(FuriHalSpiBusHandle* handle, uint8_t chan);
+uint8_t nrf24_set_chan(nrf24_device_t* device, uint8_t chan);
 
 /** Gets the source mac address
  *
@@ -253,7 +261,7 @@ uint8_t nrf24_set_chan(FuriHalSpiBusHandle* handle, uint8_t chan);
  * 
  * @return     device status
  */
-uint8_t nrf24_get_src_mac(FuriHalSpiBusHandle* handle, uint8_t* mac);
+uint8_t nrf24_get_src_mac(nrf24_device_t* device, uint8_t* mac);
 
 /** Sets the source mac address
  *
@@ -263,7 +271,7 @@ uint8_t nrf24_get_src_mac(FuriHalSpiBusHandle* handle, uint8_t* mac);
  * 
  * @return     device status
  */
-uint8_t nrf24_set_src_mac(FuriHalSpiBusHandle* handle, uint8_t* mac, uint8_t size);
+uint8_t nrf24_set_src_mac(nrf24_device_t* device, uint8_t* mac, uint8_t size);
 
 /** Gets the dest mac address
  *
@@ -272,7 +280,7 @@ uint8_t nrf24_set_src_mac(FuriHalSpiBusHandle* handle, uint8_t* mac, uint8_t siz
  * 
  * @return     device status
  */
-uint8_t nrf24_get_dst_mac(FuriHalSpiBusHandle* handle, uint8_t* mac);
+uint8_t nrf24_get_dst_mac(nrf24_device_t* device, uint8_t* mac);
 
 /** Sets the dest mac address
  *
@@ -282,7 +290,7 @@ uint8_t nrf24_get_dst_mac(FuriHalSpiBusHandle* handle, uint8_t* mac);
  * 
  * @return     device status
  */
-uint8_t nrf24_set_dst_mac(FuriHalSpiBusHandle* handle, uint8_t* mac, uint8_t size);
+uint8_t nrf24_set_dst_mac(nrf24_device_t* device, uint8_t* mac, uint8_t size);
 
 /** Reads RX packet
  *
@@ -294,7 +302,7 @@ uint8_t nrf24_set_dst_mac(FuriHalSpiBusHandle* handle, uint8_t* mac, uint8_t siz
  * @return     device status
  */
 uint8_t
-    nrf24_rxpacket(FuriHalSpiBusHandle* handle, uint8_t* packet, uint8_t* packetsize, bool full);
+    nrf24_rxpacket(nrf24_device_t* device, uint8_t* packet, uint8_t* packetsize, bool full);
 
 /** Sends TX packet
  *
@@ -305,7 +313,7 @@ uint8_t
  * 
  * @return     device status
  */
-uint8_t nrf24_txpacket(FuriHalSpiBusHandle* handle, uint8_t* payload, uint8_t size, bool ack);
+uint8_t nrf24_txpacket(nrf24_device_t* device, uint8_t* payload, uint8_t size, bool ack);
 
 /** Configure the radio
  * This is not comprehensive, but covers a lot of the common configuration options that may be changed
@@ -320,7 +328,7 @@ uint8_t nrf24_txpacket(FuriHalSpiBusHandle* handle, uint8_t* payload, uint8_t si
  * 
  */
 void nrf24_configure(
-    FuriHalSpiBusHandle* handle,
+    nrf24_device_t* device,
     uint8_t rate,
     uint8_t* srcmac,
     uint8_t* dstmac,
@@ -330,7 +338,7 @@ void nrf24_configure(
     bool disable_aa);
 
 // Set mac address (MSB first), Return: Status
-uint8_t  nrf24_set_mac(uint8_t mac_addr, uint8_t *mac, uint8_t mlen);
+uint8_t nrf24_set_mac(nrf24_device_t* device, uint8_t mac_addr, uint8_t *mac, uint8_t mlen);
 
 /** Configures the radio for "promiscuous mode" and primes it for rx
  * This is not an actual mode of the nrf24, but this function exploits a few bugs in the chip that allows it to act as if it were.
@@ -339,7 +347,7 @@ uint8_t  nrf24_set_mac(uint8_t mac_addr, uint8_t *mac, uint8_t mlen);
  * @param      channel - channel to tune to
  * @param      rate - transfer rate in Mbps (1 or 2) 
  */
-void nrf24_init_promisc_mode(FuriHalSpiBusHandle* handle, uint8_t channel, uint8_t rate);
+void nrf24_init_promisc_mode(nrf24_device_t* device, uint8_t channel, uint8_t rate);
 
 /** Listens for a packet and returns first possible address sniffed
  * Call this only after calling nrf24_init_promisc_mode
@@ -349,7 +357,7 @@ void nrf24_init_promisc_mode(FuriHalSpiBusHandle* handle, uint8_t channel, uint8
  * 
  * @return     success
  */
-bool nrf24_sniff_address(FuriHalSpiBusHandle* handle, uint8_t maclen, uint8_t* address);
+bool nrf24_sniff_address(nrf24_device_t* device, uint8_t maclen, uint8_t* address);
 
 /** Sends ping packet on each channel for designated tx mac looking for ack
  * 
@@ -365,7 +373,7 @@ bool nrf24_sniff_address(FuriHalSpiBusHandle* handle, uint8_t maclen, uint8_t* a
  * @return     channel that the address is listening on, if this value is above the max_channel param, it failed
  */
 uint8_t nrf24_find_channel(
-    FuriHalSpiBusHandle* handle,
+    nrf24_device_t* device,
     uint8_t* srcmac,
     uint8_t* dstmac,
     uint8_t maclen,
@@ -401,7 +409,7 @@ uint32_t bytes_to_int32(uint8_t* bytes, bool bigendian);
  * 
  * @return     true if connected, otherwise false
 */
-bool nrf24_check_connected(FuriHalSpiBusHandle* handle);
+bool nrf24_check_connected(nrf24_device_t* device);
 
 #ifdef __cplusplus
 }

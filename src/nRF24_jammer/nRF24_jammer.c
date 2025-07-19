@@ -50,6 +50,7 @@ typedef struct {
     bool wifi_menu_active;
     bool show_jamming_started;
     bool wifi_channel_select;
+    bool is_modules_connected;
     
     MenuType current_menu;
     WifiMode wifi_mode;
@@ -65,6 +66,7 @@ typedef struct {
     uint32_t last_down_press_time;
     uint8_t up_press_count;
     uint8_t down_press_count;
+    uint8_t len_modules;
 } PluginState;
 
 typedef enum {
@@ -97,85 +99,96 @@ static const int ble_channels_count = sizeof(ble_channels) / sizeof(ble_channels
 static const int zigbee_channels_count = sizeof(zigbee_channels) / sizeof(zigbee_channels[0]);
 
 static void jam_bluetooth(PluginState* state) {
-    nrf24_deinit();
-    nrf24_init();
-    nrf24_set_tx_mode(nrf24);
-    nrf24_startConstCarrier(nrf24, 7, 45);
+    nrf24_startConstCarrier(&nrf24_hspi, 7, 45);
+    if(state->len_modules == 2) nrf24_startConstCarrier(&nrf24_vspi, 7, 45);
     
     while(!state->is_stop) {
         for(uint8_t i = 0; i < bluetooth_channels_count && !state->is_stop; i++) {
-            nrf24_write_reg(nrf24, REG_RF_CH, bluetooth_channels[i]);
+            nrf24_write_reg(&nrf24_hspi, REG_RF_CH, bluetooth_channels[i]);
+            if(state->len_modules == 2) nrf24_write_reg(&nrf24_hspi, REG_RF_CH, bluetooth_channels[20 - i]);
         }
     }
     
-    nrf24_stopConstCarrier(nrf24);
+    nrf24_stopConstCarrier(&nrf24_hspi);
+    if(state->len_modules == 2) nrf24_stopConstCarrier(&nrf24_vspi);
 }
 
 static void jam_drone(PluginState* state) {
-    nrf24_deinit();
-    nrf24_init();
-    nrf24_set_tx_mode(nrf24);
-    nrf24_startConstCarrier(nrf24, 7, 45);
+    nrf24_startConstCarrier(&nrf24_hspi, 7, 45);
     
     while(!state->is_stop) {
         for(uint8_t i = 0; i < drone_channels_count && !state->is_stop; i++) {
-            nrf24_write_reg(nrf24, REG_RF_CH, drone_channels[i]);
+            nrf24_write_reg(&nrf24_hspi, REG_RF_CH, drone_channels[i]);
+            if(state->len_modules == 2) nrf24_write_reg(&nrf24_hspi, REG_RF_CH, drone_channels[124-i]);
         }
     }
     
-    nrf24_stopConstCarrier(nrf24);
+    nrf24_stopConstCarrier(&nrf24_hspi);
+    if(state->len_modules == 2) nrf24_stopConstCarrier(&nrf24_vspi);
 }
 
 static void jam_ble(PluginState* state) {
     uint8_t mac[] = {0xFF, 0xFF};
-    nrf24_configure(nrf24, 2, mac, mac, 2, 1, true, true);
+    nrf24_configure(&nrf24_hspi, 2, mac, mac, 2, 1, true, true);
+    if(state->len_modules == 2) nrf24_configure(&nrf24_vspi, 2, mac, mac, 2, 1, true, true);
 
     uint8_t setup;
-    nrf24_read_reg(nrf24, REG_RF_SETUP, &setup, 1);
+    nrf24_read_reg(&nrf24_hspi, REG_RF_SETUP, &setup, 1);
+    if(state->len_modules == 2) nrf24_read_reg(&nrf24_vspi, REG_RF_SETUP, &setup, 1);
     setup = (setup & 0xF8) | 7;
-    nrf24_write_reg(nrf24, REG_RF_SETUP, setup);
+    nrf24_write_reg(&nrf24_hspi, REG_RF_SETUP, setup);
+    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_SETUP, setup);
 
     uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
-    nrf24_set_tx_mode(nrf24);
+    nrf24_set_tx_mode(&nrf24_hspi);
+    if(state->len_modules == 2) nrf24_set_tx_mode(&nrf24_vspi);
     
     while(!state->is_stop) {
         for(uint8_t i = 0; i < ble_channels_count && !state->is_stop; i++) {
-            nrf24_write_reg(nrf24, REG_RF_CH, ble_channels[i]);
-            nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
+            nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ble_channels[i]);
+            if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, ble_channels[2-i]);
+            nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
+            if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
         }
     }
 }
 
 static void jam_misc(PluginState* state) {
     if(state->misc_mode == MISC_MODE_CHANNEL_SWITCHING){
-        nrf24_deinit();
-        nrf24_init();
-        nrf24_set_tx_mode(nrf24);
-        nrf24_startConstCarrier(nrf24, 7, 45);
+        nrf24_startConstCarrier(&nrf24_hspi, 7, 45);
+        if(state->len_modules == 2) nrf24_startConstCarrier(&nrf24_vspi, 7, 45);
         
         while(!state->is_stop) {
             for(uint8_t ch = state->misc_start; ch < state->misc_stop; ch++) {
-                nrf24_write_reg(nrf24, REG_RF_CH, ch);
+                nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
+                if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, state->misc_start-ch);
             }
         }
     
-        nrf24_stopConstCarrier(nrf24);
+        nrf24_stopConstCarrier(&nrf24_hspi);
+        if(state->len_modules == 2) nrf24_stopConstCarrier(&nrf24_vspi);
     } else {
         uint8_t mac[] = {0xFF, 0xFF};
-        nrf24_configure(nrf24, 2, mac, mac, 2, state->misc_start, true, true);
+        nrf24_configure(&nrf24_hspi, 2, mac, mac, 2, state->misc_start, true, true);
+        if(state->len_modules == 2) nrf24_configure(&nrf24_vspi, 2, mac, mac, 2, state->misc_start, true, true);
 
         uint8_t setup;
-        nrf24_read_reg(nrf24, REG_RF_SETUP, &setup, 1);
+        nrf24_read_reg(&nrf24_hspi, REG_RF_SETUP, &setup, 1);
+        if(state->len_modules == 2) nrf24_read_reg(&nrf24_vspi, REG_RF_SETUP, &setup, 1);
         setup = (setup & 0xF8) | 7;
-        nrf24_write_reg(nrf24, REG_RF_SETUP, setup);
+        nrf24_write_reg(&nrf24_hspi, REG_RF_SETUP, setup);
+        if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_SETUP, setup);
 
         uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
-        nrf24_set_tx_mode(nrf24);
+        nrf24_set_tx_mode(&nrf24_hspi);
+        if(state->len_modules == 2) nrf24_set_tx_mode(&nrf24_vspi);
 
         while(!state->is_stop) {
             for(uint8_t ch = state->misc_start; ch < state->misc_stop; ch++) {
-                nrf24_write_reg(nrf24, REG_RF_CH, ch);
-                nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
+                nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
+                if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, state->misc_start-ch);
+                nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
+                if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
             }
         }
     }
@@ -183,28 +196,36 @@ static void jam_misc(PluginState* state) {
 
 static void jam_wifi(PluginState* state) {
     uint8_t mac[] = {0xFF, 0xFF};
-    nrf24_configure(nrf24, 2, mac, mac, 2, 1, true, true);
+    nrf24_configure(&nrf24_hspi, 2, mac, mac, 2, 1, true, true);
+    if(state->len_modules == 2) nrf24_configure(&nrf24_vspi, 2, mac, mac, 2, 1, true, true);
 
     uint8_t setup;
-    nrf24_read_reg(nrf24, REG_RF_SETUP, &setup, 1);
+    nrf24_read_reg(&nrf24_hspi, REG_RF_SETUP, &setup, 1);
+    if(state->len_modules == 2) nrf24_read_reg(&nrf24_vspi, REG_RF_SETUP, &setup, 1);
     setup = (setup & 0xF8) | 7;
-    nrf24_write_reg(nrf24, REG_RF_SETUP, setup);
+    nrf24_write_reg(&nrf24_hspi, REG_RF_SETUP, setup);
+    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_SETUP, setup);
 
     uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
-    nrf24_set_tx_mode(nrf24);
+    nrf24_set_tx_mode(&nrf24_hspi);
+    if(state->len_modules == 2) nrf24_set_tx_mode(&nrf24_vspi);
 
     while(!state->is_stop) {
         if(state->wifi_mode == WIFI_MODE_ALL) {
             for(uint8_t channel = 0; channel < 13 && !state->is_stop; channel++) {
                 for(uint8_t ch = (channel * 5) + 1; ch < (channel * 5) + 23 && !state->is_stop; ch++) {
-                    nrf24_write_reg(nrf24, REG_RF_CH, ch);
-                    nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
+                    nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
+                    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, 84-ch);
+                    nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
+                    if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
                 }
             }
         } else {
             for(uint8_t ch = (state->wifi_channel * 5) + 1; ch < (state->wifi_channel * 5) + 23 && !state->is_stop; ch++) {
-                nrf24_write_reg(nrf24, REG_RF_CH, ch);
-                nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
+                nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
+                if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, ((state->wifi_channel * 5)+ 24) - (ch - (state->wifi_channel * 5)));
+                nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
+                if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
             }
         }
     }
@@ -212,21 +233,27 @@ static void jam_wifi(PluginState* state) {
 
 static void jam_zigbee(PluginState* state) {
     uint8_t mac[] = {0xFF, 0xFF};
-    nrf24_configure(nrf24, 2, mac, mac, 2, 1, true, true);
+    nrf24_configure(&nrf24_hspi, 2, mac, mac, 2, 1, true, true);
+    if(state->len_modules == 2) nrf24_configure(&nrf24_vspi, 2, mac, mac, 2, 1, true, true);
 
     uint8_t setup;
-    nrf24_read_reg(nrf24, REG_RF_SETUP, &setup, 1);
+    nrf24_read_reg(&nrf24_hspi, REG_RF_SETUP, &setup, 1);
+    if(state->len_modules == 2) nrf24_read_reg(&nrf24_vspi, REG_RF_SETUP, &setup, 1);
     setup = (setup & 0xF8) | 7;
-    nrf24_write_reg(nrf24, REG_RF_SETUP, setup);
+    nrf24_write_reg(&nrf24_hspi, REG_RF_SETUP, setup);
+    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_SETUP, setup);
 
     uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
-    nrf24_set_tx_mode(nrf24);
+    nrf24_set_tx_mode(&nrf24_hspi);
+    if(state->len_modules == 2) nrf24_set_tx_mode(&nrf24_vspi);
 
     while(!state->is_stop) {
         for(uint8_t i = 0; i < zigbee_channels_count && !state->is_stop; i++) {
             for(uint8_t ch = 5 + 5 * (zigbee_channels[i] - 11); ch < (5 + 5 * (zigbee_channels[i] - 11)) + 6 && !state->is_stop; ch++) {
-                nrf24_write_reg(nrf24, REG_RF_CH, ch);
-                nrf24_spi_trx(nrf24, tx, NULL, 3, nrf24_TIMEOUT);
+                nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
+                if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, 91-ch);
+                nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
+                if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
             }
         }
     }
@@ -335,7 +362,22 @@ static void render_callback(Canvas* canvas, void* ctx) {
     canvas_clear(canvas);
     canvas_draw_frame(canvas, 0, 0, 128, 64);
     
-    if(state->current_menu == MENU_MISC && state->show_jamming_started) {
+    if (!state->is_modules_connected) {
+        char buffer[32];
+        canvas_set_font(canvas, FontPrimary);
+
+        canvas_draw_str_aligned(canvas, 64, 10, AlignCenter, AlignTop, "Module Status");
+
+        snprintf(buffer, sizeof(buffer), "Connected: %d module(s)", state->len_modules);
+        canvas_draw_str_aligned(canvas, 64, 25, AlignCenter, AlignTop, buffer);
+
+        if(state->len_modules == 0) {
+            canvas_set_font(canvas, FontSecondary);
+            canvas_draw_str_aligned(canvas, 64, 40, AlignCenter, AlignTop, "No modules detected");
+            canvas_draw_str_aligned(canvas, 64, 50, AlignCenter, AlignTop, "Please connect module");
+        }
+    }
+    else if(state->current_menu == MENU_MISC && state->show_jamming_started) {
         canvas_set_font(canvas, FontPrimary);
         canvas_draw_str_aligned(canvas, 64, 32, AlignCenter, AlignCenter, "Jamming started");
     }
@@ -454,6 +496,7 @@ int32_t nRF24_jammer_app(void* p) {
     state->notifications = furi_record_open(RECORD_NOTIFICATION);
     state->is_running = false;
     state->is_stop = true;
+    state->is_modules_connected = false;
     state->wifi_menu_active = false;
     state->wifi_channel_select = false;
     state->show_jamming_started = false;
@@ -464,6 +507,7 @@ int32_t nRF24_jammer_app(void* p) {
     state->wifi_channel = 0;
     state->misc_start = 0;
     state->misc_stop = 0;
+    state->len_modules = 0;
     state->held_key = InputKeyMAX;
     state->hold_counter = 0;
     state->last_up_press_time = 0;
@@ -483,16 +527,32 @@ int32_t nRF24_jammer_app(void* p) {
     gui_add_view_port(gui, state->view_port, GuiLayerFullscreen);
     
     state->thread = furi_thread_alloc_ex("nRFJammer", 1024, jam_thread, state);
-    nrf24_init();
+    nrf24_init(&nrf24_hspi);
+    nrf24_init(&nrf24_vspi);
 
     PluginEvent event;
     bool running = true;
     uint32_t last_tick = furi_get_tick();
-    
+
     while(running) {
         FuriStatus status = furi_message_queue_get(queue, &event, 50);
         uint32_t current_tick = furi_get_tick();
         
+        if(!state->is_modules_connected) {
+            if(nrf24_check_connected(&nrf24_hspi)) state->len_modules++;
+            if(nrf24_check_connected(&nrf24_vspi)) state->len_modules++;
+            view_port_update(state->view_port);
+            furi_delay_ms(100);
+            if(state->len_modules > 0) {
+                if(!nrf24_check_connected(&nrf24_hspi)) state->len_modules--;
+                if(state->len_modules == 2 && !nrf24_check_connected(&nrf24_vspi)) state->len_modules--;
+                view_port_update(state->view_port);
+                furi_delay_ms(2000); 
+                state->is_modules_connected = true;
+                view_port_update(state->view_port);
+            }
+        }
+
         if(current_tick - last_tick >= HOLD_DELAY_MS) {
             last_tick = current_tick;
             if(state->held_key != InputKeyMAX && !state->is_running) {
@@ -520,7 +580,7 @@ int32_t nRF24_jammer_app(void* p) {
                 case InputKeyUp:
                     state->held_key = InputKeyUp;
                     state->hold_counter = 0;
-                    if(!state->is_running) {
+                    if(!state->is_running && state->is_modules_connected) {
                         if(state->current_menu == MENU_MISC && state->misc_state != MISC_STATE_IDLE) {
                             handle_settings_input(state, InputKeyUp, false);
                             view_port_update(state->view_port);
@@ -539,7 +599,7 @@ int32_t nRF24_jammer_app(void* p) {
                 case InputKeyDown:
                     state->held_key = InputKeyDown;
                     state->hold_counter = 0;
-                    if(!state->is_running) {
+                    if(!state->is_running && state->is_modules_connected) {
                         if(state->current_menu == MENU_MISC && state->misc_state != MISC_STATE_IDLE) {
                             handle_settings_input(state, InputKeyDown, false);
                             view_port_update(state->view_port);
@@ -557,9 +617,11 @@ int32_t nRF24_jammer_app(void* p) {
                     break;
                     
                 case InputKeyOk:
-                    if(!nrf24_check_connected(nrf24)) {
+                    if(((state->len_modules == 2 && (!nrf24_check_connected(&nrf24_hspi) || !nrf24_check_connected(&nrf24_vspi))) || (state->len_modules == 1 && !nrf24_check_connected(&nrf24_hspi))) && state->is_modules_connected) {
                         notification_message(state->notifications, &error_sequence);
-                    } else if(!state->is_running) {
+                        state->len_modules = 0;
+                        state->is_modules_connected = false;
+                    } else if(!state->is_running && state->is_modules_connected) {
                         if(state->current_menu == MENU_MISC) {
                             if(state->misc_state == MISC_STATE_IDLE) {
                                 state->misc_state = MISC_STATE_SET_START;
@@ -627,7 +689,7 @@ int32_t nRF24_jammer_app(void* p) {
                 case InputKeyLeft:
                     state->held_key = InputKeyLeft;
                     state->hold_counter = 0;
-                    if(!state->is_running) {
+                    if(!state->is_running && state->is_modules_connected) {
                         if(state->current_menu == MENU_MISC && state->misc_state != MISC_STATE_IDLE) {
                             state->misc_mode = (state->misc_mode == 0) ? (MISC_MODE_COUNT - 1) : (state->misc_mode - 1);
                         } else if(state->current_menu == MENU_WIFI && state->wifi_menu_active) {
@@ -646,7 +708,7 @@ int32_t nRF24_jammer_app(void* p) {
                 case InputKeyRight:
                     state->held_key = InputKeyRight;
                     state->hold_counter = 0;
-                    if(!state->is_running) {
+                    if(!state->is_running && state->is_modules_connected) {
                         if(state->current_menu == MENU_MISC && state->misc_state != MISC_STATE_IDLE) {
                             state->misc_mode = (state->misc_mode + 1) % MISC_MODE_COUNT;
                         } else if(state->current_menu == MENU_WIFI && state->wifi_menu_active) {
@@ -673,7 +735,8 @@ int32_t nRF24_jammer_app(void* p) {
     }
     
     gui_remove_view_port(gui, state->view_port);
-    nrf24_deinit();
+    nrf24_deinit(&nrf24_hspi);
+    nrf24_deinit(&nrf24_vspi);
     view_port_free(state->view_port);
     furi_thread_free(state->thread);
     furi_record_close(RECORD_GUI);
