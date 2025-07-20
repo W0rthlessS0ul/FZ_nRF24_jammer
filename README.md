@@ -72,7 +72,7 @@ To bring this project to life, you will need the following components:
 </details>
 
 <details>
-<summary><strong>Two nRF24</strong></summary>
+<summary><strong>Two_nRF24</strong></summary>
 
 <div style="margin-left: 20px;">
 
@@ -107,7 +107,7 @@ To bring this project to life, you will need the following components:
 | VCC       | OUT         | +             |
 | GND       | GND         | -             |
 
-![Two nRF24](schemes/Two nRF24/scheme.png)
+![Two nRF24](schemes/Two_nRF24/scheme.png)
 
 ###### In both configurations (HSPI and VSPI), the same SCK, MOSI, and MISO pins are used. This is not a mistake—SPI interfaces can share clock and data lines, while proper operation is ensured by separate control signals (CSN and CE)
 
