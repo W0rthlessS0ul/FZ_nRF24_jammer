@@ -66,13 +66,13 @@ To bring this project to life, you will need the following components:
 | VCC       | OUT         | +             |
 | GND       | GND         | -             |
 
-![One nRF24](schemes/One nRF24/scheme.png)
+![One nRF24](schemes/One_nRF24/scheme.png)
 
 </div>
 </details>
 
 <details>
-<summary><strong>Two_nRF24</strong></summary>
+<summary><strong>Two nRF24</strong></summary>
 
 <div style="margin-left: 20px;">
 
