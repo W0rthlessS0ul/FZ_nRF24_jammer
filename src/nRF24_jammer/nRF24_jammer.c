@@ -105,7 +105,7 @@ static void jam_bluetooth(PluginState* state) {
     while(!state->is_stop) {
         for(uint8_t i = 0; i < bluetooth_channels_count && !state->is_stop; i++) {
             nrf24_write_reg(&nrf24_hspi, REG_RF_CH, bluetooth_channels[i]);
-            if(state->len_modules == 2) nrf24_write_reg(&nrf24_hspi, REG_RF_CH, bluetooth_channels[20 - i]);
+            if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, bluetooth_channels[20 - i]);
         }
     }
     
@@ -115,6 +115,7 @@ static void jam_bluetooth(PluginState* state) {
 
 static void jam_drone(PluginState* state) {
     nrf24_startConstCarrier(&nrf24_hspi, 7, 45);
+    if(state->len_modules == 2) nrf24_startConstCarrier(&nrf24_vspi, 7, 45);
     
     while(!state->is_stop) {
         for(uint8_t i = 0; i < drone_channels_count && !state->is_stop; i++) {
