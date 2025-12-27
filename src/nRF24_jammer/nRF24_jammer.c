@@ -120,7 +120,7 @@ static void jam_drone(PluginState* state) {
     while(!state->is_stop) {
         for(uint8_t i = 0; i < drone_channels_count && !state->is_stop; i++) {
             nrf24_write_reg(&nrf24_hspi, REG_RF_CH, drone_channels[i]);
-            if(state->len_modules == 2) nrf24_write_reg(&nrf24_hspi, REG_RF_CH, drone_channels[124-i]);
+            if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, drone_channels[124-i]);
         }
     }
     
