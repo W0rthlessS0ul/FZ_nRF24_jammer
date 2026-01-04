@@ -616,11 +616,11 @@ static void handle_wifi_input(PluginState* state, InputKey key) {
     switch(key) {
         case InputKeyUp:
         case InputKeyRight:
-            state->wifi_channel = (state->wifi_channel + 1) % 15;
+            state->wifi_channel = (state->wifi_channel % 14) + 1;
             break;
         case InputKeyDown:
         case InputKeyLeft:
-            state->wifi_channel = (state->wifi_channel == 0) ? 14 : (state->wifi_channel - 1);
+            state->wifi_channel = (state->wifi_channel == 1) ? 14 : (state->wifi_channel - 1);
             break;
         default:
             break;
@@ -644,7 +644,7 @@ int32_t nRF24_jammer_app(void* p) {
     state->wifi_mode = WIFI_MODE_ALL;
     state->misc_state = MISC_STATE_IDLE;
     state->misc_mode = MISC_MODE_CHANNEL_SWITCHING;
-    state->wifi_channel = 0;
+    state->wifi_channel = 1;
     state->misc_start = 0;
     state->misc_stop = 0;
     state->len_modules = 0;
