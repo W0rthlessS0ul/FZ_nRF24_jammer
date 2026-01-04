@@ -7,20 +7,6 @@
 
 uint8_t nrf24_spi_users_count = 0;  
 
-nrf24_device_t nrf24_hspi = {
-    .spi_handle = (FuriHalSpiBusHandle*) &furi_hal_spi_bus_handle_external,
-    .ce_pin = &gpio_ext_pb2,
-    .cs_pin = &gpio_ext_pa4,
-    .initialized = false
-};
-
-nrf24_device_t nrf24_vspi = {
-    .spi_handle = (FuriHalSpiBusHandle*) &furi_hal_spi_bus_handle_external,
-    .ce_pin = &gpio_ext_pc3,
-    .cs_pin = &gpio_ext_pc0,
-    .initialized = false
-};
-
 void nrf24_init(nrf24_device_t* device) {
     if(device->initialized) return;
 
@@ -164,6 +150,14 @@ uint8_t nrf24_set_rate(nrf24_device_t* device, uint32_t rate) {
     return status;
 }
 
+uint8_t nrf24_set_txpower(nrf24_device_t* device, uint8_t level) {
+    uint8_t setup;
+    nrf24_read_reg(device, REG_RF_SETUP, &setup, 1);
+    setup = (setup & 0xF8) | level;
+    nrf24_write_reg(device, REG_RF_SETUP, setup);
+    return setup;
+}
+
 void nrf24_startConstCarrier(nrf24_device_t* device, uint8_t level, uint8_t channel) {
     nrf24_deinit(device);
     nrf24_init(device);
@@ -172,10 +166,10 @@ void nrf24_startConstCarrier(nrf24_device_t* device, uint8_t level, uint8_t chan
 
     nrf24_write_reg(device, REG_RF_CH, channel);
 
-    uint8_t setup;
-    nrf24_read_reg(device, REG_RF_SETUP, &setup, 1);
-    setup = (setup & 0xF8) | ((level & 0x3) << 1);
-    nrf24_write_reg(device, REG_RF_SETUP, setup);
+    uint8_t setup = nrf24_set_txpower(device, level);
+    //nrf24_read_reg(device, REG_RF_SETUP, &setup, 1);
+    //setup = (setup & 0xF8) | ((level & 0x3) << 1);
+    //nrf24_write_reg(device, REG_RF_SETUP, setup);
 
     setup |= NRF24_CONT_WAVE | NRF24_PLL_LOCK;
     nrf24_write_reg(device, REG_RF_SETUP, setup);

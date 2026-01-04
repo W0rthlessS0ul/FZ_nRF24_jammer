@@ -63,10 +63,6 @@ typedef struct {
     bool initialized;
 } nrf24_device_t;
 
-extern uint8_t nrf24_spi_users_count;
-extern nrf24_device_t nrf24_hspi;
-extern nrf24_device_t nrf24_vspi;
-
 void nrf24_spi_trx(
     nrf24_device_t* device,
     uint8_t* tx,
@@ -132,7 +128,14 @@ uint8_t nrf24_set_idle(nrf24_device_t* device);
  */
 uint8_t nrf24_set_rx_mode(nrf24_device_t* device);
 
-
+/** Sets the radio to max power TX
+ *
+ * @param      handle - pointer to FuriHalSpiHandle
+ *             level  - level tx power
+ * 
+ * @return     current value of register RF_SETUP
+ */
+uint8_t nrf24_set_txpower(nrf24_device_t* device, uint8_t level);
 
 void nrf24_startConstCarrier(nrf24_device_t* device, uint8_t level, uint8_t channel);
 void nrf24_stopConstCarrier(nrf24_device_t* device);
