@@ -1,6 +1,10 @@
+//#define DEBUG_POWER
 #include <furi.h>
 #include <furi_hal.h>
 #include <furi_hal_random.h>
+#ifdef DEBUG_POWER
+#include <furi_hal_power.h>
+#endif
 #include <gui/gui.h>
 #include <input/input.h>
 #include <notification/notification_messages.h>
@@ -95,6 +99,8 @@ const NotificationSequence error_sequence = {
     NULL,
 };
 
+nrf24_device_t nrf24_dev[MAX_NRF24];
+
 static const uint8_t bluetooth_channels[] = {32, 34, 46, 48, 50, 52, 0, 1, 2, 4, 6, 8, 22, 24, 26, 28, 30, 74, 76, 78, 80};
 //static uint8_t drone_channels[125];
 static const uint8_t ble_channels[] = {2, 26, 80};
@@ -104,8 +110,6 @@ static const uint8_t zigbee_channels[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20
 //static const int drone_channels_count = sizeof(drone_channels) / sizeof(drone_channels[0]);
 static const int ble_channels_count = sizeof(ble_channels) / sizeof(ble_channels[0]);
 static const int zigbee_channels_count = sizeof(zigbee_channels) / sizeof(zigbee_channels[0]);
-
-nrf24_device_t nrf24_dev[MAX_NRF24];
 
 static void start_const_carrier(uint8_t len_modules) {
     for (uint8_t i = 0; i < len_modules; i++) {
@@ -483,6 +487,9 @@ static void render_active_jamming(Canvas* canvas, MenuType menu) {
         case MENU_ZIGBEE: canvas_draw_icon(canvas, 0, 0, &I_zigbee_jam); break;
         default: break;
     }
+#ifdef DEBUG_POWER
+    FURI_LOG_I(TAG, "current: %d mA", abs((int32_t)(furi_hal_power_get_battery_current(FuriHalPowerICFuelGauge) * 1000)));
+#endif
 }
 
 static void render_menu_icons(Canvas* canvas, MenuType menu) {
@@ -737,7 +744,7 @@ int32_t nRF24_jammer_app(void* p) {
                 }
             }
         }
-        
+
         if(status == FuriStatusOk && event.type == EVENT_KEY) {
             if(event.input.type == InputTypePress) {
                 switch(event.input.key) {
@@ -779,11 +786,13 @@ int32_t nRF24_jammer_app(void* p) {
                         }
                     }
                     break;
-                    
+
                 case InputKeyOk:
                     uint8_t count = 0;
-                    for (uint8_t i = 0; i < state->len_modules; i++) {
-                        if (!nrf24_check_connected(&nrf24_dev[i])) count++;
+                    if (!state->is_running) { // run nrf24_check_connected whhile running freeze the app
+                        for (uint8_t i = 0; i < state->len_modules; i++) {
+                            if (!nrf24_check_connected(&nrf24_dev[i])) count++;
+                        }
                     }
                     if (count == state->len_modules && state->is_modules_connected) {
                         notification_message(state->notifications, &error_sequence);
@@ -828,7 +837,7 @@ int32_t nRF24_jammer_app(void* p) {
                         }
                     }
                     break;
-                    
+
                 case InputKeyBack:
                     if(state->is_running) {
                         state->is_stop = true;
@@ -854,6 +863,7 @@ int32_t nRF24_jammer_app(void* p) {
                         running = false;
                     }
                     break;
+
                 case InputKeyLeft:
                     state->held_key = InputKeyLeft;
                     state->hold_counter = 0;
@@ -901,7 +911,7 @@ int32_t nRF24_jammer_app(void* p) {
             }
         }
     }
-    
+
     gui_remove_view_port(gui, state->view_port);
     for(uint8_t i = 0; i < MAX_NRF24; i++) {
         nrf24_deinit(&nrf24_dev[i]);
@@ -914,6 +924,6 @@ int32_t nRF24_jammer_app(void* p) {
     furi_mutex_free(state->mutex);
     furi_message_queue_free(queue);
     free(state);
-    
+
     return 0;
 }
