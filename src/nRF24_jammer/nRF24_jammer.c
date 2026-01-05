@@ -1,5 +1,10 @@
+//#define DEBUG_POWER
 #include <furi.h>
 #include <furi_hal.h>
+#include <furi_hal_random.h>
+#ifdef DEBUG_POWER
+#include <furi_hal_power.h>
+#endif
 #include <gui/gui.h>
 #include <input/input.h>
 #include <notification/notification_messages.h>
@@ -9,6 +14,8 @@
 #define TAG "nRF24_jammer_app"
 #define nrf24 (FuriHalSpiBusHandle*)&furi_hal_spi_bus_handle_external
 #define HOLD_DELAY_MS 100
+
+#define MAX_NRF24 4
 
 typedef enum {
     MENU_BLUETOOTH,
@@ -51,6 +58,7 @@ typedef struct {
     bool show_jamming_started;
     bool wifi_channel_select;
     bool is_modules_connected;
+    bool is_separate;
     
     MenuType current_menu;
     WifiMode wifi_mode;
@@ -59,7 +67,10 @@ typedef struct {
     uint8_t wifi_channel;
     uint8_t misc_start;
     uint8_t misc_stop;
-    
+
+    uint8_t bluetooth_jam_method;
+    uint8_t drone_jam_method;
+
     InputKey held_key;
     uint32_t hold_counter;
     uint32_t last_up_press_time;
@@ -88,145 +99,268 @@ const NotificationSequence error_sequence = {
     NULL,
 };
 
-static uint8_t bluetooth_channels[] = {32, 34, 46, 48, 50, 52, 0, 1, 2, 4, 6, 8, 22, 24, 26, 28, 30, 74, 76, 78, 80};
-static uint8_t drone_channels[125];
-static uint8_t ble_channels[] = {2, 26, 80};
-static uint8_t zigbee_channels[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
+nrf24_device_t nrf24_dev[MAX_NRF24];
 
-static const int bluetooth_channels_count = sizeof(bluetooth_channels) / sizeof(bluetooth_channels[0]);
-static const int drone_channels_count = sizeof(drone_channels) / sizeof(drone_channels[0]);
+static const uint8_t bluetooth_channels[] = {32, 34, 46, 48, 50, 52, 0, 1, 2, 4, 6, 8, 22, 24, 26, 28, 30, 74, 76, 78, 80};
+//static uint8_t drone_channels[125];
+static const uint8_t ble_channels[] = {2, 26, 80};
+static const uint8_t zigbee_channels[] = {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
+
+//static const int bluetooth_channels_count = sizeof(bluetooth_channels) / sizeof(bluetooth_channels[0]);
+//static const int drone_channels_count = sizeof(drone_channels) / sizeof(drone_channels[0]);
 static const int ble_channels_count = sizeof(ble_channels) / sizeof(ble_channels[0]);
 static const int zigbee_channels_count = sizeof(zigbee_channels) / sizeof(zigbee_channels[0]);
 
+static void start_const_carrier(uint8_t len_modules) {
+    for (uint8_t i = 0; i < len_modules; i++) {
+        nrf24_startConstCarrier(&nrf24_dev[i], 6, 45); // lna disabled because is usefull only for RX
+    }
+}
+
+static void stop_const_carrier(uint8_t len_modules) {
+    for (uint8_t i = 0; i < len_modules; i++) {
+        nrf24_stopConstCarrier(&nrf24_dev[i]);
+    }
+}
+
+static void write_channel_random_separate(uint8_t limit, uint8_t len_modules) {
+    limit++; // random exclude max number
+    for(uint8_t i = 0; i < len_modules; i++) {
+        nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, (furi_hal_random_get() % limit));
+    }
+}
+
+static void write_channel_random(uint8_t limit, uint8_t len_modules) {
+    limit++; // random exclude max number
+    uint8_t ch = (furi_hal_random_get() % limit);
+    for(uint8_t i = 0; i < len_modules; i++) {
+        nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+    }
+}
+
+static void write_channel_all_separate(uint8_t limit, uint8_t len_modules, uint8_t start) {
+    for (uint8_t ch = start; ch <= limit; ch++) {
+        uint8_t i = ch % len_modules;
+        nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+    }
+}
+
+static void write_channel_all(uint8_t limit, uint8_t len_modules, uint8_t start) {
+    for (uint8_t ch = start; ch <= limit; ch++) {
+        for(uint8_t i = 0; i < len_modules; i++) {
+            nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+        }
+    }
+}
+
+static void write_channel_list_separate(const uint8_t *list, uint8_t size_list, uint8_t len_modules) {
+    for (uint8_t ch = 0; ch < size_list; ch++) {
+        uint8_t i = ch % len_modules;
+        nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, list[ch]);
+    }
+}
+
+static void write_channel_list(const uint8_t *list, uint8_t size_list, uint8_t len_modules) {
+    for (uint8_t ch = 0; ch < size_list; ch++) {
+        for(uint8_t i = 0; i < len_modules; i++) {
+            nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, list[ch]);
+        }
+    }
+}
+
 static void jam_bluetooth(PluginState* state) {
-    nrf24_startConstCarrier(&nrf24_hspi, 7, 45);
-    if(state->len_modules == 2) nrf24_startConstCarrier(&nrf24_vspi, 7, 45);
-    
+    start_const_carrier(state->len_modules);
+
     while(!state->is_stop) {
-        for(uint8_t i = 0; i < bluetooth_channels_count && !state->is_stop; i++) {
-            nrf24_write_reg(&nrf24_hspi, REG_RF_CH, bluetooth_channels[i]);
-            if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, bluetooth_channels[20 - i]);
+        if (state->is_separate) {
+            if (state->bluetooth_jam_method == 0) {
+                write_channel_list_separate(bluetooth_channels, sizeof(bluetooth_channels), state->len_modules);
+            } else if (state->bluetooth_jam_method == 1) {
+                write_channel_random_separate(80, state->len_modules);
+            } else if (state->bluetooth_jam_method == 2) {
+                write_channel_all_separate(80, state->len_modules, 0);
+            }
+        } else {
+            if (state->bluetooth_jam_method == 0) {
+                write_channel_list(bluetooth_channels, sizeof(bluetooth_channels), state->len_modules);
+            } else if (state->bluetooth_jam_method == 1) {
+                write_channel_random(80, state->len_modules);
+            } else if (state->bluetooth_jam_method == 2) {
+                write_channel_all(80, state->len_modules, 0);
+            }
         }
     }
     
-    nrf24_stopConstCarrier(&nrf24_hspi);
-    if(state->len_modules == 2) nrf24_stopConstCarrier(&nrf24_vspi);
+    stop_const_carrier(state->len_modules);
 }
 
 static void jam_drone(PluginState* state) {
-    nrf24_startConstCarrier(&nrf24_hspi, 7, 45);
-    if(state->len_modules == 2) nrf24_startConstCarrier(&nrf24_vspi, 7, 45);
+    start_const_carrier(state->len_modules);
     
     while(!state->is_stop) {
-        for(uint8_t i = 0; i < drone_channels_count && !state->is_stop; i++) {
-            nrf24_write_reg(&nrf24_hspi, REG_RF_CH, drone_channels[i]);
-            if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, drone_channels[124-i]);
+        if (state->is_separate) {
+            if (state->drone_jam_method == 0) {
+                write_channel_all_separate(125, state->len_modules, 0);
+            } else if (state->drone_jam_method == 1) {
+                write_channel_random_separate(125, state->len_modules);
+            }
+        } else {
+            if (state->drone_jam_method == 0) {
+                write_channel_all(125, state->len_modules, 0);
+            } else if (state->drone_jam_method == 1) {
+                write_channel_random(125, state->len_modules);
+            }
         }
     }
-    
-    nrf24_stopConstCarrier(&nrf24_hspi);
-    if(state->len_modules == 2) nrf24_stopConstCarrier(&nrf24_vspi);
+
+    stop_const_carrier(state->len_modules);
 }
 
 static void jam_ble(PluginState* state) {
     uint8_t mac[] = {0xFF, 0xFF};
-    nrf24_configure(&nrf24_hspi, 2, mac, mac, 2, 1, true, true);
-    if(state->len_modules == 2) nrf24_configure(&nrf24_vspi, 2, mac, mac, 2, 1, true, true);
-
-    uint8_t setup;
-    nrf24_read_reg(&nrf24_hspi, REG_RF_SETUP, &setup, 1);
-    if(state->len_modules == 2) nrf24_read_reg(&nrf24_vspi, REG_RF_SETUP, &setup, 1);
-    setup = (setup & 0xF8) | 7;
-    nrf24_write_reg(&nrf24_hspi, REG_RF_SETUP, setup);
-    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_SETUP, setup);
-
     uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
-    nrf24_set_tx_mode(&nrf24_hspi);
-    if(state->len_modules == 2) nrf24_set_tx_mode(&nrf24_vspi);
-    
+
+    for (uint8_t i = 0; i < state->len_modules; i++) {
+        nrf24_configure(&nrf24_dev[i], 2, mac, mac, 2, 1, true, true);
+        nrf24_set_txpower(&nrf24_dev[i], 6); // lna disabled because is usefull only for RX
+        nrf24_set_tx_mode(&nrf24_dev[i]);
+    }
     while(!state->is_stop) {
-        for(uint8_t i = 0; i < ble_channels_count && !state->is_stop; i++) {
-            nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ble_channels[i]);
-            if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, ble_channels[2-i]);
-            nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
-            if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
+        if (state->is_separate) {
+            for (uint8_t ch = 0; ch < ble_channels_count; ch++) {
+                uint8_t i = ch % state->len_modules;
+                nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ble_channels[ch]);
+                nrf24_spi_trx(&nrf24_dev[i], tx, NULL, 3, nrf24_TIMEOUT);
+            }
+        } else {
+            for (uint8_t ch = 0; ch < ble_channels_count; ch++) {
+                for(uint8_t i = 0; i < state->len_modules; i++) {
+                    nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ble_channels[ch]);
+                    nrf24_spi_trx(&nrf24_dev[i], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
+                }
+            }
         }
     }
 }
 
 static void jam_misc(PluginState* state) {
     if(state->misc_mode == MISC_MODE_CHANNEL_SWITCHING){
-        nrf24_startConstCarrier(&nrf24_hspi, 7, 45);
-        if(state->len_modules == 2) nrf24_startConstCarrier(&nrf24_vspi, 7, 45);
+        start_const_carrier(state->len_modules);
         
         while(!state->is_stop) {
-            for(uint8_t ch = state->misc_start; ch < state->misc_stop; ch++) {
-                nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
-                if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, state->misc_start-ch);
+            if (state->is_separate) {
+                write_channel_all_separate(state->misc_stop, state->len_modules, state->misc_start);
+            } else {
+                write_channel_all(state->misc_stop, state->len_modules, state->misc_start);
             }
         }
     
-        nrf24_stopConstCarrier(&nrf24_hspi);
-        if(state->len_modules == 2) nrf24_stopConstCarrier(&nrf24_vspi);
+        stop_const_carrier(state->len_modules);
     } else {
         uint8_t mac[] = {0xFF, 0xFF};
-        nrf24_configure(&nrf24_hspi, 2, mac, mac, 2, state->misc_start, true, true);
-        if(state->len_modules == 2) nrf24_configure(&nrf24_vspi, 2, mac, mac, 2, state->misc_start, true, true);
-
-        uint8_t setup;
-        nrf24_read_reg(&nrf24_hspi, REG_RF_SETUP, &setup, 1);
-        if(state->len_modules == 2) nrf24_read_reg(&nrf24_vspi, REG_RF_SETUP, &setup, 1);
-        setup = (setup & 0xF8) | 7;
-        nrf24_write_reg(&nrf24_hspi, REG_RF_SETUP, setup);
-        if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_SETUP, setup);
-
         uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
-        nrf24_set_tx_mode(&nrf24_hspi);
-        if(state->len_modules == 2) nrf24_set_tx_mode(&nrf24_vspi);
+
+        for (uint8_t i = 0; i < state->len_modules; i++) {
+            nrf24_configure(&nrf24_dev[i], 2, mac, mac, 2, state->misc_start, true, true);
+            nrf24_set_txpower(&nrf24_dev[i], 6); // lna disabled because is usefull only for RX
+            nrf24_set_tx_mode(&nrf24_dev[i]);
+        }
 
         while(!state->is_stop) {
-            for(uint8_t ch = state->misc_start; ch < state->misc_stop; ch++) {
+            if (state->is_separate) {
+                for (uint8_t ch = state->misc_start; ch <= state->misc_stop; ch++) {
+                    uint8_t i = ch % state->len_modules;
+                    nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+                    nrf24_spi_trx(&nrf24_dev[i], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
+                }
+            } else {
+                for (uint8_t ch = state->misc_start; ch <= state->misc_stop; ch++) {
+                    for(uint8_t i = 0; i < state->len_modules; i++) {
+                        nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+                        nrf24_spi_trx(&nrf24_dev[i], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
+                    }
+                }
+            }
+            /*for(uint8_t ch = state->misc_start; ch < state->misc_stop; ch++) {
                 nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
                 if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, state->misc_start-ch);
                 nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
                 if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
-            }
+            }*/
         }
     }
 }
-
+/*
+    Channel 1  Center: 2412 MHz  Range : 2401 - 2423 MHz
+    Channel 2  Center: 2417 MHz  Range : 2406 - 2428 MHz
+    Channel 3  Center: 2422 MHz  Range : 2411 - 2433 MHz
+    Channel 4  Center: 2427 MHz  Range : 2416 - 2438 MHz
+    Channel 5  Center: 2432 MHz  Range : 2421 - 2443 MHz
+    Channel 6  Center: 2437 MHz  Range : 2426 - 2448 MHz
+    Channel 7  Center: 2442 MHz  Range : 2431 - 2453 MHz
+    Channel 8  Center: 2447 MHz  Range : 2436 - 2458 MHz
+    Channel 9  Center: 2452 MHz  Range : 2441 - 2463 MHz
+    Channel 10 Center: 2457 MHz  Range : 2446 - 2468 MHz
+    Channel 11 Center: 2462 MHz  Range : 2451 - 2473 MHz
+    Channel 12 Center: 2467 MHz  Range : 2456 - 2478 MHz
+    Channel 13 Center: 2472 MHz  Range : 2461 - 2483 MHz
+    Channel 14 Center: 2477 MHz  Range : 2466 - 2488 MHz
+*/
 static void jam_wifi(PluginState* state) {
     uint8_t mac[] = {0xFF, 0xFF};
-    nrf24_configure(&nrf24_hspi, 2, mac, mac, 2, 1, true, true);
-    if(state->len_modules == 2) nrf24_configure(&nrf24_vspi, 2, mac, mac, 2, 1, true, true);
-
-    uint8_t setup;
-    nrf24_read_reg(&nrf24_hspi, REG_RF_SETUP, &setup, 1);
-    if(state->len_modules == 2) nrf24_read_reg(&nrf24_vspi, REG_RF_SETUP, &setup, 1);
-    setup = (setup & 0xF8) | 7;
-    nrf24_write_reg(&nrf24_hspi, REG_RF_SETUP, setup);
-    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_SETUP, setup);
-
     uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
-    nrf24_set_tx_mode(&nrf24_hspi);
-    if(state->len_modules == 2) nrf24_set_tx_mode(&nrf24_vspi);
+
+    for (uint8_t i = 0; i < state->len_modules; i++) {
+        nrf24_configure(&nrf24_dev[i], 2, mac, mac, 2, state->misc_start, true, true);
+        nrf24_set_txpower(&nrf24_dev[i], 6); // lna disabled because is usefull only for RX
+        nrf24_set_tx_mode(&nrf24_dev[i]);
+    }
 
     while(!state->is_stop) {
         if(state->wifi_mode == WIFI_MODE_ALL) {
-            for(uint8_t channel = 0; channel < 13 && !state->is_stop; channel++) {
-                for(uint8_t ch = (channel * 5) + 1; ch < (channel * 5) + 23 && !state->is_stop; ch++) {
-                    nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
-                    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, 84-ch);
-                    nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
-                    if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
+            if (state->is_separate) {
+                for(uint8_t channel = 0; channel <= 13 && !state->is_stop; channel++) { // Some zone in the world use channel 13 and 14
+                    for(uint8_t ch = (channel * 5) + 1; ch <= (channel * 5) + 23 && !state->is_stop; ch++) {
+                        uint8_t i = ch % state->len_modules;
+                        nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+                        nrf24_spi_trx(&nrf24_dev[i], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
+    /*
+                        nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
+                        if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, 84-ch);
+                        nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
+                        if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
+                        */
+                    }
+                }
+            } else {
+                for(uint8_t channel = 0; channel <= 13 && !state->is_stop; channel++) { // Some zone in the world use channel 13 and 14
+                    for(uint8_t ch = (channel * 5) + 1; ch <= (channel * 5) + 23 && !state->is_stop; ch++) {
+                        for(uint8_t i = 0; i < state->len_modules; i++) {
+                            nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+                            nrf24_spi_trx(&nrf24_dev[i], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
+                        }
+                   }
                 }
             }
         } else {
-            for(uint8_t ch = (state->wifi_channel * 5) + 1; ch < (state->wifi_channel * 5) + 23 && !state->is_stop; ch++) {
-                nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
-                if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, ((state->wifi_channel * 5)+ 24) - (ch - (state->wifi_channel * 5)));
-                nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
-                if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
+            uint8_t wifi_tmp = state->wifi_channel - 1;
+            if (state->is_separate) {
+                for(uint8_t ch = (wifi_tmp * 5) + 1; ch <= (wifi_tmp * 5) + 23 && !state->is_stop; ch++) {
+                    uint8_t i = ch % state->len_modules;
+                    nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+                    nrf24_spi_trx(&nrf24_dev[i], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
+                    /*nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
+                    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, ((state->wifi_channel * 5)+ 24) - (ch - (state->wifi_channel * 5)));
+                    nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
+                    if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);*/
+                }
+            } else {
+                for(uint8_t ch = (wifi_tmp * 5) + 1; ch <= (wifi_tmp * 5) + 23 && !state->is_stop; ch++) {
+                    for(uint8_t i = 0; i < state->len_modules; i++) {
+                        nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+                        nrf24_spi_trx(&nrf24_dev[i], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
+                    }
+                }
             }
         }
     }
@@ -234,27 +368,36 @@ static void jam_wifi(PluginState* state) {
 
 static void jam_zigbee(PluginState* state) {
     uint8_t mac[] = {0xFF, 0xFF};
-    nrf24_configure(&nrf24_hspi, 2, mac, mac, 2, 1, true, true);
-    if(state->len_modules == 2) nrf24_configure(&nrf24_vspi, 2, mac, mac, 2, 1, true, true);
-
-    uint8_t setup;
-    nrf24_read_reg(&nrf24_hspi, REG_RF_SETUP, &setup, 1);
-    if(state->len_modules == 2) nrf24_read_reg(&nrf24_vspi, REG_RF_SETUP, &setup, 1);
-    setup = (setup & 0xF8) | 7;
-    nrf24_write_reg(&nrf24_hspi, REG_RF_SETUP, setup);
-    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_SETUP, setup);
-
     uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
-    nrf24_set_tx_mode(&nrf24_hspi);
-    if(state->len_modules == 2) nrf24_set_tx_mode(&nrf24_vspi);
+
+    for (uint8_t i = 0; i < state->len_modules; i++) {
+        nrf24_configure(&nrf24_dev[i], 2, mac, mac, 2, state->misc_start, true, true);
+        nrf24_set_txpower(&nrf24_dev[i], 6); // lna disabled because is usefull only for RX
+        nrf24_set_tx_mode(&nrf24_dev[i]);
+    }
 
     while(!state->is_stop) {
-        for(uint8_t i = 0; i < zigbee_channels_count && !state->is_stop; i++) {
-            for(uint8_t ch = 5 + 5 * (zigbee_channels[i] - 11); ch < (5 + 5 * (zigbee_channels[i] - 11)) + 6 && !state->is_stop; ch++) {
-                nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
-                if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, 91-ch);
-                nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
-                if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);
+        if (state->is_separate) {
+            for(uint8_t i = 0; i < zigbee_channels_count && !state->is_stop; i++) {
+                for(uint8_t ch = 5 + 5 * (zigbee_channels[i] - 11); ch < (5 + 5 * (zigbee_channels[i] - 11)) + 6 && !state->is_stop; ch++) {
+                    uint8_t k = ch % state->len_modules;
+                    nrf24_write_reg(&nrf24_dev[k], REG_RF_CH, ch);
+                    nrf24_spi_trx(&nrf24_dev[k], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
+
+                    /*nrf24_write_reg(&nrf24_hspi, REG_RF_CH, ch);
+                    if(state->len_modules == 2) nrf24_write_reg(&nrf24_vspi, REG_RF_CH, 91-ch);
+                    nrf24_spi_trx(&nrf24_hspi, tx, NULL, 3, nrf24_TIMEOUT);
+                    if(state->len_modules == 2) nrf24_spi_trx(&nrf24_vspi, tx, NULL, 3, nrf24_TIMEOUT);*/
+                }
+            }
+        } else {
+            for(uint8_t i = 0; i < zigbee_channels_count && !state->is_stop; i++) {
+                for(uint8_t ch = 5 + 5 * (zigbee_channels[i] - 11); ch < (5 + 5 * (zigbee_channels[i] - 11)) + 6 && !state->is_stop; ch++) {
+                    for(uint8_t k = 0; k < state->len_modules; k++) {
+                        nrf24_write_reg(&nrf24_dev[k], REG_RF_CH, ch);
+                        nrf24_spi_trx(&nrf24_dev[k], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
+                    }
+                }
             }
         }
     }
@@ -344,6 +487,9 @@ static void render_active_jamming(Canvas* canvas, MenuType menu) {
         case MENU_ZIGBEE: canvas_draw_icon(canvas, 0, 0, &I_zigbee_jam); break;
         default: break;
     }
+#ifdef DEBUG_POWER
+    FURI_LOG_I(TAG, "current: %d mA", abs((int32_t)(furi_hal_power_get_battery_current(FuriHalPowerICFuelGauge) * 1000)));
+#endif
 }
 
 static void render_menu_icons(Canvas* canvas, MenuType menu) {
@@ -477,11 +623,11 @@ static void handle_wifi_input(PluginState* state, InputKey key) {
     switch(key) {
         case InputKeyUp:
         case InputKeyRight:
-            state->wifi_channel = (state->wifi_channel + 1) % 13;
+            state->wifi_channel = (state->wifi_channel % 14) + 1;
             break;
         case InputKeyDown:
         case InputKeyLeft:
-            state->wifi_channel = (state->wifi_channel == 0) ? 12 : (state->wifi_channel - 1);
+            state->wifi_channel = (state->wifi_channel == 1) ? 14 : (state->wifi_channel - 1);
             break;
         default:
             break;
@@ -505,7 +651,7 @@ int32_t nRF24_jammer_app(void* p) {
     state->wifi_mode = WIFI_MODE_ALL;
     state->misc_state = MISC_STATE_IDLE;
     state->misc_mode = MISC_MODE_CHANNEL_SWITCHING;
-    state->wifi_channel = 0;
+    state->wifi_channel = 1;
     state->misc_start = 0;
     state->misc_stop = 0;
     state->len_modules = 0;
@@ -515,8 +661,12 @@ int32_t nRF24_jammer_app(void* p) {
     state->last_down_press_time = 0;
     state->up_press_count = 0;
     state->down_press_count = 0;
+
+    state->is_separate = true;
+    state->bluetooth_jam_method = 0;
+    state->drone_jam_method = 0;
     
-    for(uint8_t i = 0; i < 125; i++) drone_channels[i] = i;
+    //for(uint8_t i = 0; i < 125; i++) drone_channels[i] = i;
     
     if(!furi_hal_power_is_otg_enabled()) furi_hal_power_enable_otg();
 
@@ -528,8 +678,26 @@ int32_t nRF24_jammer_app(void* p) {
     gui_add_view_port(gui, state->view_port, GuiLayerFullscreen);
     
     state->thread = furi_thread_alloc_ex("nRFJammer", 1024, jam_thread, state);
-    nrf24_init(&nrf24_hspi);
-    nrf24_init(&nrf24_vspi);
+
+    for(uint8_t i = 0; i < MAX_NRF24; i++) {
+        nrf24_dev[i].spi_handle = (FuriHalSpiBusHandle*) &furi_hal_spi_bus_handle_external;
+        nrf24_dev[i].initialized = false;
+        // TODO make it dynamic
+        if (i == 0) {
+            nrf24_dev[i].ce_pin = &gpio_ext_pb2; // PB2
+            nrf24_dev[i].cs_pin = &gpio_ext_pa4; // PA4
+        } else if (i == 1) {
+            nrf24_dev[i].ce_pin = &gpio_swclk;   // PA14
+            nrf24_dev[i].cs_pin = &gpio_ext_pc3; // PC3
+        } else if (i == 2) {
+            nrf24_dev[i].ce_pin = &gpio_ext_pc1; // PC1
+            nrf24_dev[i].cs_pin = &gpio_swdio;   // PA13
+        } else if (i == 3) {
+            nrf24_dev[i].ce_pin = &gpio_ibutton; // PB14
+            nrf24_dev[i].cs_pin = &gpio_ext_pc0; // PC0
+        }
+        nrf24_init(&nrf24_dev[i]);
+    }
 
     PluginEvent event;
     bool running = true;
@@ -540,13 +708,15 @@ int32_t nRF24_jammer_app(void* p) {
         uint32_t current_tick = furi_get_tick();
         
         if(!state->is_modules_connected) {
-            if(nrf24_check_connected(&nrf24_hspi)) state->len_modules++;
-            if(nrf24_check_connected(&nrf24_vspi)) state->len_modules++;
+            for(uint8_t i = 0; i < MAX_NRF24; i++) {
+                if (nrf24_check_connected(&nrf24_dev[i])) state->len_modules++;
+            }
             view_port_update(state->view_port);
             furi_delay_ms(100);
             if(state->len_modules > 0) {
-                if(!nrf24_check_connected(&nrf24_hspi)) state->len_modules--;
-                if(state->len_modules == 2 && !nrf24_check_connected(&nrf24_vspi)) state->len_modules--;
+                for(uint8_t i = 0; i < state->len_modules; i++) {
+                    if (!nrf24_check_connected(&nrf24_dev[i])) state->len_modules--;
+                }
                 view_port_update(state->view_port);
                 furi_delay_ms(2000); 
                 state->is_modules_connected = true;
@@ -574,7 +744,7 @@ int32_t nRF24_jammer_app(void* p) {
                 }
             }
         }
-        
+
         if(status == FuriStatusOk && event.type == EVENT_KEY) {
             if(event.input.type == InputTypePress) {
                 switch(event.input.key) {
@@ -616,9 +786,15 @@ int32_t nRF24_jammer_app(void* p) {
                         }
                     }
                     break;
-                    
+
                 case InputKeyOk:
-                    if(((state->len_modules == 2 && (!nrf24_check_connected(&nrf24_hspi) || !nrf24_check_connected(&nrf24_vspi))) || (state->len_modules == 1 && !nrf24_check_connected(&nrf24_hspi))) && state->is_modules_connected) {
+                    uint8_t count = 0;
+                    if (!state->is_running) { // run nrf24_check_connected whhile running freeze the app
+                        for (uint8_t i = 0; i < state->len_modules; i++) {
+                            if (!nrf24_check_connected(&nrf24_dev[i])) count++;
+                        }
+                    }
+                    if (count == state->len_modules && state->is_modules_connected) {
                         notification_message(state->notifications, &error_sequence);
                         state->len_modules = 0;
                         state->is_modules_connected = false;
@@ -661,7 +837,7 @@ int32_t nRF24_jammer_app(void* p) {
                         }
                     }
                     break;
-                    
+
                 case InputKeyBack:
                     if(state->is_running) {
                         state->is_stop = true;
@@ -687,6 +863,7 @@ int32_t nRF24_jammer_app(void* p) {
                         running = false;
                     }
                     break;
+
                 case InputKeyLeft:
                     state->held_key = InputKeyLeft;
                     state->hold_counter = 0;
@@ -734,10 +911,11 @@ int32_t nRF24_jammer_app(void* p) {
             }
         }
     }
-    
+
     gui_remove_view_port(gui, state->view_port);
-    nrf24_deinit(&nrf24_hspi);
-    nrf24_deinit(&nrf24_vspi);
+    for(uint8_t i = 0; i < MAX_NRF24; i++) {
+        nrf24_deinit(&nrf24_dev[i]);
+    }
     view_port_free(state->view_port);
     furi_thread_free(state->thread);
     furi_record_close(RECORD_GUI);
@@ -746,6 +924,6 @@ int32_t nRF24_jammer_app(void* p) {
     furi_mutex_free(state->mutex);
     furi_message_queue_free(queue);
     free(state);
-    
+
     return 0;
 }
