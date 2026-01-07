@@ -238,7 +238,7 @@ static void settings_load(PluginState* state) {
     furi_record_close(RECORD_STORAGE);
 }
 
-static bool is_separate_mode(PluginState* state) {
+static inline bool is_separate_mode(PluginState* state) {
     return state->modules_mode == MODULES_MODE_SEPARATE;
 }
 
@@ -479,7 +479,7 @@ static void jam_zigbee(PluginState* state) {
     while(!state->is_stop) {
         if(is_separate_mode(state)) {
             for(uint8_t i = 0; i < zigbee_channels_count && !state->is_stop; i++) {
-                for(uint8_t ch = 4 + 5 * (zigbee_channels[i] - 11); ch < (4 + 5 * (zigbee_channels[i] - 11)) + 2 && !state->is_stop; ch++) {
+                for(uint8_t ch = 4 + 5 * (zigbee_channels[i] - 11); ch <= (4 + 5 * (zigbee_channels[i] - 11)) + 2 && !state->is_stop; ch++) {
                     uint8_t k = ch % state->len_modules;
                     nrf24_write_reg(&nrf24_dev[k], REG_RF_CH, ch);
                     nrf24_spi_trx(&nrf24_dev[k], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
@@ -487,7 +487,7 @@ static void jam_zigbee(PluginState* state) {
             }
         } else {
             for(uint8_t i = 0; i < zigbee_channels_count && !state->is_stop; i++) {
-                for(uint8_t ch = 4 + 5 * (zigbee_channels[i] - 11); ch < (4 + 5 * (zigbee_channels[i] - 11)) + 2 && !state->is_stop; ch++) {
+                for(uint8_t ch = 4 + 5 * (zigbee_channels[i] - 11); ch <= (4 + 5 * (zigbee_channels[i] - 11)) + 2 && !state->is_stop; ch++) {
                     for(uint8_t k = 0; k < state->len_modules; k++) {
                         nrf24_write_reg(&nrf24_dev[k], REG_RF_CH, ch);
                         nrf24_spi_trx(&nrf24_dev[k], tx, NULL, sizeof(tx), nrf24_TIMEOUT);
