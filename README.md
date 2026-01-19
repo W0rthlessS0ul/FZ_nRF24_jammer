@@ -114,6 +114,69 @@ To bring this project to life, you will need the following components:
 </div>
 </details>
 
+<details>
+<summary><strong>Four nRF24</strong></summary>
+
+<div style="margin-left: 20px;">
+
+### Connecting First nRF24 module 
+| **nRF24**    | **Flipper Zero GPIO** |
+|--------------|-----------------------|
+| CE           | B2                    |
+| CSN          | A4                    |
+| SCK          | B3                    |
+| MOSI         | A7                    |
+| MISO         | A6                    |
+| IRQ          |                       |
+
+### Connecting Second nRF24 module 
+| **nRF24**    | **Flipper Zero GPIO** |
+|--------------|-----------------------|
+| CE           | SWC                   |
+| CSN          | C3                    |
+| SCK          | B3                    |
+| MOSI         | A7                    |
+| MISO         | A6                    |
+| IRQ          |                       |
+
+### Connecting Third nRF24 module  
+| **nRF24**    | **Flipper Zero GPIO** |
+|--------------|-----------------------|
+| CE           | C1                    |
+| CSN          | SIO                   |
+| SCK          | B3                    |
+| MOSI         | A7                    |
+| MISO         | A6                    |
+| IRQ          |                       |
+
+### Connecting Fourth nRF24 module  
+| **nRF24**    | **Flipper Zero GPIO** |
+|--------------|-----------------------|
+| CE           | 1W                    |
+| CSN          | C0                    |
+| SCK          | B3                    |
+| MOSI         | A7                    |
+| MISO         | A6                    |
+| IRQ          |                       |
+
+### Power Supply Connection
+| **AMS1117** | **Flipper Zero GPIO** |
+|-------------|-----------------------|
+| VIN         | 5V                    |
+| GND         | GND                   |
+
+| **nRF24** | **AMS1117** | **capacitor** |
+|-----------|-------------|---------------|
+| VCC       | OUT         | +             |
+| GND       | GND         | -             |
+
+![Four nRF24](schemes/Four_nRF24/scheme.png)
+
+###### In both configurations (HSPI and VSPI), the same SCK, MOSI, and MISO pins are used. This is not a mistake—SPI interfaces can share clock and data lines, while proper operation is ensured by separate control signals (CSN and CE)
+
+</div>
+</details>
+
 ##### Anyone who built the device before version 1.4.0, please add the AMS1117 module to your circuit, without it the nrf24 does not work correctly
 
 -----
