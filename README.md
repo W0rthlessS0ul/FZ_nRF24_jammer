@@ -16,7 +16,7 @@ Welcome to the **FZ nRF24 Jammer** repository! 🎉 Dive into the world of RF in
 - [🎉 Final Outcome](#-final-outcome)
 - [🙏 Acknowledgments](#-acknowledgments)
 - [❤️ Support the project](#-support-the-project)
-- [🌐 Follow Me for Updates](#-follow-me-for-updates)
+- [⭐ Star History](#-star-history)
 
 -----
 
