@@ -266,9 +266,12 @@ Every donation is greatly appreciated and contributes to the ongoing development
 
 ---
 
-## 🌐 Follow Me for Updates
-Stay connected to receive the latest updates:
+## ⭐ Star History
 
-[![GitHub](https://img.shields.io/badge/GitHub-W0rthlessS0ul-181717?style=flat&logo=github&logoColor=white)](https://github.com/W0rthlessS0ul)
-
-<img src="https://profile-counter.glitch.me/W0rthlessS0ul.FZ_nRF24_jammer/count.svg"/>
+<a href="https://www.star-history.com/#W0rthlessS0ul/FZ_nRF24_jammer&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=W0rthlessS0ul/FZ_nRF24_jammer&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=W0rthlessS0ul/FZ_nRF24_jammer&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=W0rthlessS0ul/FZ_nRF24_jammer&type=date&legend=top-left" />
+ </picture>
+</a>
