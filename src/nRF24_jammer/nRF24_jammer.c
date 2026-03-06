@@ -65,6 +65,7 @@ typedef enum {
 } ModulesMode;
 
 typedef enum {
+    SETTINGS_ITEM_SPI_MODE,
     SETTINGS_ITEM_MODULES_MODE,
     SETTINGS_ITEM_BLUETOOTH_METHOD,
     SETTINGS_ITEM_DRONE_METHOD,
@@ -77,6 +78,12 @@ typedef enum {
     HIDE_LOGO,
     LOGO_COUNT
 } Is_Logo;
+
+typedef enum {
+    SPI_MODE_DEFAULT,  // CS on PA4 (standard standalone NRF24)
+    SPI_MODE_EXTRA,    // CS on PC3 (2-in-1 NRF24+CC1101 module)
+    SPI_MODE_COUNT
+} SpiMode;
 
 typedef struct {
     FuriMutex* mutex;
@@ -100,6 +107,7 @@ typedef struct {
     uint8_t misc_start;
     uint8_t misc_stop;
 
+    SpiMode spi_mode;
     ModulesMode modules_mode;
     BluetoothJamMethod bluetooth_jam_method;
     DroneJamMethod drone_jam_method;
@@ -152,6 +160,8 @@ static void settings_save(PluginState* state) {
 
     if(file_stream_open(stream, "/ext/apps_data/fz_nrf24_jammer/settings.txt", FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
         char buffer[128];
+        snprintf(buffer, sizeof(buffer), "spi_mode=%d\n", state->spi_mode);
+        stream_write(stream, (uint8_t*)buffer, strlen(buffer));
         snprintf(buffer, sizeof(buffer), "modules_mode=%d\n", state->modules_mode);
         stream_write(stream, (uint8_t*)buffer, strlen(buffer));
         snprintf(buffer, sizeof(buffer), "bluetooth_jam_method=%d\n", state->bluetooth_jam_method);
@@ -172,6 +182,7 @@ static void settings_load(PluginState* state) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     Stream* stream = file_stream_alloc(storage);
     
+    state->spi_mode = SPI_MODE_DEFAULT;
     state->modules_mode = MODULES_MODE_SEPARATE;
     state->bluetooth_jam_method = BLUETOOTH_MODE_LIST;
     state->drone_jam_method = DRONE_MODE_BRUTEFORCE;
@@ -189,7 +200,16 @@ static void settings_load(PluginState* state) {
                 char* line = strtok(content, "\n");
                 
                 while(line != NULL) {
-                    if(strstr(line, "modules_mode=") != NULL) {
+                    if(strstr(line, "spi_mode=") != NULL) {
+                        char* value = strchr(line, '=');
+                        if(value != NULL) {
+                            value++;
+                            state->spi_mode = atoi(value);
+                            if(state->spi_mode >= SPI_MODE_COUNT)
+                                state->spi_mode = SPI_MODE_DEFAULT;
+                        }
+                    }
+                    else if(strstr(line, "modules_mode=") != NULL) {
                         char* value = strchr(line, '=');
                         if(value != NULL) {
                             value++;
@@ -549,6 +569,15 @@ static void render_settings_menu(Canvas* canvas, PluginState* state) {
         }
         
         switch(item_index) {
+            case SETTINGS_ITEM_SPI_MODE:
+                canvas_draw_str(canvas, 4, y + 9, "SPI Pin:");
+                if(state->spi_mode == SPI_MODE_DEFAULT) {
+                    canvas_draw_str(canvas, 60, y + 9, "Default 4");
+                } else {
+                    canvas_draw_str(canvas, 60, y + 9, "Extra 7");
+                }
+                break;
+
             case SETTINGS_ITEM_MODULES_MODE:
                 canvas_draw_str(canvas, 4, y + 9, "Modules:");
                 if(state->modules_mode == MODULES_MODE_SEPARATE) {
@@ -843,7 +872,7 @@ static void handle_menu_input(PluginState* state, InputKey key) {
     state->wifi_menu_active = false;
     state->wifi_channel_select = false;
     state->settings_menu_active = false;
-    state->selected_setting_item = SETTINGS_ITEM_MODULES_MODE;
+    state->selected_setting_item = SETTINGS_ITEM_SPI_MODE;
 }
 
 static void handle_settings_menu_input(PluginState* state, InputKey key) {
@@ -859,7 +888,13 @@ static void handle_settings_menu_input(PluginState* state, InputKey key) {
             state->selected_setting_item = (state->selected_setting_item + 1) % SETTINGS_ITEM_COUNT;
             break;
         case InputKeyLeft:
-            if(state->selected_setting_item == SETTINGS_ITEM_MODULES_MODE) {
+            if(state->selected_setting_item == SETTINGS_ITEM_SPI_MODE) {
+                if(state->spi_mode == 0) {
+                    state->spi_mode = SPI_MODE_COUNT - 1;
+                } else {
+                    state->spi_mode--;
+                }
+            } else if(state->selected_setting_item == SETTINGS_ITEM_MODULES_MODE) {
                 if(state->modules_mode == 0) {
                     state->modules_mode = MODULES_MODE_COUNT - 1;
                 } else {
@@ -886,7 +921,9 @@ static void handle_settings_menu_input(PluginState* state, InputKey key) {
             }
             break;
         case InputKeyRight:
-            if(state->selected_setting_item == SETTINGS_ITEM_MODULES_MODE) {
+            if(state->selected_setting_item == SETTINGS_ITEM_SPI_MODE) {
+                state->spi_mode = (state->spi_mode + 1) % SPI_MODE_COUNT;
+            } else if(state->selected_setting_item == SETTINGS_ITEM_MODULES_MODE) {
                 state->modules_mode = (state->modules_mode + 1) % MODULES_MODE_COUNT;
             } else if(state->selected_setting_item == SETTINGS_ITEM_BLUETOOTH_METHOD) {
                 state->bluetooth_jam_method = (state->bluetooth_jam_method + 1) % BLUETOOTH_MODE_COUNT;
@@ -940,7 +977,7 @@ int32_t nRF24_jammer_app(void* p) {
     state->wifi_channel = 1;
     state->misc_start = 0;
     state->misc_stop = 0;
-    state->selected_setting_item = SETTINGS_ITEM_MODULES_MODE;
+    state->selected_setting_item = SETTINGS_ITEM_SPI_MODE;
     state->len_modules = 0;
     state->held_key = InputKeyMAX;
     state->hold_counter = 0;
@@ -965,23 +1002,35 @@ int32_t nRF24_jammer_app(void* p) {
     
     state->thread = furi_thread_alloc_ex("nRFJammer", 1024, jam_thread, state);
 
-    for(uint8_t i = 0; i < MAX_NRF24; i++) {
-        nrf24_dev[i].spi_handle = (FuriHalSpiBusHandle*) &furi_hal_spi_bus_handle_external;
-        nrf24_dev[i].initialized = false;
-        if(i == 0) {
-            nrf24_dev[i].ce_pin = &gpio_ext_pb2;
-            nrf24_dev[i].cs_pin = &gpio_ext_pa4;
-        } else if(i == 1) {
-            nrf24_dev[i].ce_pin = &gpio_swclk;
-            nrf24_dev[i].cs_pin = &gpio_ext_pc3;
-        } else if(i == 2) {
-            nrf24_dev[i].ce_pin = &gpio_ext_pc1;
-            nrf24_dev[i].cs_pin = &gpio_swdio;
-        } else if(i == 3) {
-            nrf24_dev[i].ce_pin = &gpio_ibutton;
-            nrf24_dev[i].cs_pin = &gpio_ext_pc0;
+    if(state->spi_mode == SPI_MODE_EXTRA) {
+        // 2-in-1 NRF24+CC1101 module: only 1 NRF24, CS on PC3, CE on PB2
+        nrf24_dev[0].spi_handle = (FuriHalSpiBusHandle*) &furi_hal_spi_bus_handle_external;
+        nrf24_dev[0].initialized = false;
+        nrf24_dev[0].ce_pin = &gpio_ext_pb2;
+        nrf24_dev[0].cs_pin = &gpio_ext_pc3;
+        nrf24_init(&nrf24_dev[0]);
+        for(uint8_t i = 1; i < MAX_NRF24; i++) {
+            nrf24_dev[i].initialized = false;
         }
-        nrf24_init(&nrf24_dev[i]);
+    } else {
+        for(uint8_t i = 0; i < MAX_NRF24; i++) {
+            nrf24_dev[i].spi_handle = (FuriHalSpiBusHandle*) &furi_hal_spi_bus_handle_external;
+            nrf24_dev[i].initialized = false;
+            if(i == 0) {
+                nrf24_dev[i].ce_pin = &gpio_ext_pb2;
+                nrf24_dev[i].cs_pin = &gpio_ext_pa4;
+            } else if(i == 1) {
+                nrf24_dev[i].ce_pin = &gpio_swclk;
+                nrf24_dev[i].cs_pin = &gpio_ext_pc3;
+            } else if(i == 2) {
+                nrf24_dev[i].ce_pin = &gpio_ext_pc1;
+                nrf24_dev[i].cs_pin = &gpio_swdio;
+            } else if(i == 3) {
+                nrf24_dev[i].ce_pin = &gpio_ibutton;
+                nrf24_dev[i].cs_pin = &gpio_ext_pc0;
+            }
+            nrf24_init(&nrf24_dev[i]);
+        }
     }
 
     PluginEvent event;
@@ -993,7 +1042,8 @@ int32_t nRF24_jammer_app(void* p) {
         uint32_t current_tick = furi_get_tick();
         
         if(!state->is_modules_connected) {
-            for(uint8_t i = 0; i < MAX_NRF24; i++) {
+            uint8_t max_check = (state->spi_mode == SPI_MODE_EXTRA) ? 1 : MAX_NRF24;
+            for(uint8_t i = 0; i < max_check; i++) {
                 if(nrf24_check_connected(&nrf24_dev[i])) state->len_modules++;
             }
             view_port_update(state->view_port);
