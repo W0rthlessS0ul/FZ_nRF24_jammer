@@ -98,6 +98,8 @@ typedef struct {
     bool wifi_channel_select;
     bool is_modules_connected;
     bool settings_menu_active;
+    bool ble_menu_active;
+    uint8_t ble_selected;
     
     MenuType current_menu;
     WifiMode wifi_mode;
@@ -367,7 +369,7 @@ static void jam_drone(PluginState* state) {
     stop_const_carrier(state->len_modules);
 }
 
-static void jam_ble(PluginState* state) {
+static void jam_ble_advertising(PluginState* state) {
     uint8_t mac[] = {0xFF, 0xFF};
     uint8_t tx[3] = {W_TX_PAYLOAD_NOACK, mac[0], mac[1]};
 
@@ -392,6 +394,27 @@ static void jam_ble(PluginState* state) {
             }
         }
     }
+}
+
+static void jam_ble_data(PluginState* state) {
+    start_const_carrier(state->len_modules);
+
+    while(!state->is_stop) {
+        if(is_separate_mode(state)) {
+            for (uint8_t ch = 2; ch <= 80; ch+=2){
+                uint8_t i = ch % state->len_modules;
+                nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+            }
+        } else {
+            for (uint8_t ch = 2; ch <= 80; ch+=2){
+                for (uint8_t i = 0; i < state->len_modules; i++){
+                    nrf24_write_reg(&nrf24_dev[i], REG_RF_CH, ch);
+                }
+            }
+        }
+    }
+    
+    stop_const_carrier(state->len_modules);
 }
 
 static void jam_misc(PluginState* state) {
@@ -527,7 +550,12 @@ static int32_t jam_thread(void* ctx) {
         case MENU_BLUETOOTH: jam_bluetooth(state); break;
         case MENU_DRONE: jam_drone(state); break;
         case MENU_WIFI: jam_wifi(state); break;
-        case MENU_BLE: jam_ble(state); break;
+        case MENU_BLE:
+            if(state->ble_selected == 0)
+                jam_ble_advertising(state);
+            else
+                jam_ble_data(state);
+            break;
         case MENU_ZIGBEE: jam_zigbee(state); break;
         case MENU_MISC: jam_misc(state); break;
         case MENU_SETTINGS:
@@ -789,6 +817,17 @@ static void render_callback(Canvas* canvas, void* ctx) {
             render_menu_icons(canvas, state->current_menu);
         }
     }
+    else if(state->current_menu == MENU_BLE) {
+        if(state->ble_menu_active) {
+            if(state->ble_selected == 0) {
+                canvas_draw_icon(canvas, 0, 0, &I_advertising_channels);
+            } else {
+                canvas_draw_icon(canvas, 0, 0, &I_data_channels);
+            }
+        } else {
+            render_menu_icons(canvas, state->current_menu);
+        }
+    }
     else {
         render_menu_icons(canvas, state->current_menu);
     }
@@ -872,6 +911,7 @@ static void handle_menu_input(PluginState* state, InputKey key) {
     state->wifi_menu_active = false;
     state->wifi_channel_select = false;
     state->settings_menu_active = false;
+    state->ble_menu_active = false;
     state->selected_setting_item = SETTINGS_ITEM_SPI_MODE;
 }
 
@@ -970,6 +1010,8 @@ int32_t nRF24_jammer_app(void* p) {
     state->wifi_channel_select = false;
     state->show_jamming_started = false;
     state->settings_menu_active = false;
+    state->ble_menu_active = false;
+    state->ble_selected = 0;
     state->current_menu = MENU_BLUETOOTH;
     state->wifi_mode = WIFI_MODE_ALL;
     state->misc_state = MISC_STATE_IDLE;
@@ -1104,6 +1146,9 @@ int32_t nRF24_jammer_app(void* p) {
                         } else if(state->current_menu == MENU_SETTINGS && state->settings_menu_active) {
                             handle_settings_menu_input(state, InputKeyUp);
                             view_port_update(state->view_port);
+                        } else if(state->current_menu == MENU_BLE && state->ble_menu_active) {
+                            state->ble_selected = (state->ble_selected == 0) ? 1 : 0;
+                            view_port_update(state->view_port);
                         } else {
                             handle_menu_input(state, InputKeyUp);
                         }
@@ -1129,6 +1174,9 @@ int32_t nRF24_jammer_app(void* p) {
                             }
                         } else if(state->current_menu == MENU_SETTINGS && state->settings_menu_active) {
                             handle_settings_menu_input(state, InputKeyDown);
+                            view_port_update(state->view_port);
+                        } else if(state->current_menu == MENU_BLE && state->ble_menu_active) {
+                            state->ble_selected = (state->ble_selected == 0) ? 1 : 0;
                             view_port_update(state->view_port);
                         } else {
                             handle_menu_input(state, InputKeyDown);
@@ -1190,6 +1238,12 @@ int32_t nRF24_jammer_app(void* p) {
                             } else {
                                 state->settings_menu_active = true;
                             }
+                        } else if(state->current_menu == MENU_BLE) {
+                            if(state->ble_menu_active) {
+                                furi_thread_start(state->thread);
+                            } else {
+                                state->ble_menu_active = true;
+                            }
                         } else {
                             furi_thread_start(state->thread);
                         }
@@ -1202,6 +1256,9 @@ int32_t nRF24_jammer_app(void* p) {
                         furi_thread_join(state->thread);
                         if(state->current_menu == MENU_MISC) {
                             state->show_jamming_started = false;
+                        }
+                        if(state->current_menu == MENU_BLE) {
+                            state->ble_menu_active = true;
                         }
                     } else if(state->current_menu == MENU_MISC) {
                         if(state->misc_state == MISC_STATE_SET_STOP) {
@@ -1221,6 +1278,12 @@ int32_t nRF24_jammer_app(void* p) {
                         if(state->settings_menu_active) {
                             settings_save(state);
                             state->settings_menu_active = false;
+                        } else {
+                            running = false;
+                        }
+                    } else if(state->current_menu == MENU_BLE) {
+                        if(state->ble_menu_active) {
+                            state->ble_menu_active = false;
                         } else {
                             running = false;
                         }
