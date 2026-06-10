@@ -89,8 +89,8 @@ To bring this project to life, you will need the following components:
 ### VSPI Connection
 | **nRF24** | **Flipper Zero GPIO** |
 |--------------|-----------------------|
-| CE           | C3                    |
-| CSN          | C0                    |
+| CE           | C0                    |
+| CSN          | C3                    |
 | SCK          | B3                    |
 | MOSI         | A7                    |
 | MISO         | A6                    |
