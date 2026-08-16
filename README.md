@@ -275,10 +275,10 @@ Every donation is greatly appreciated and contributes to the ongoing development
 
 ## ⭐ Star History
 
-<a href="https://www.star-history.com/#W0rthlessS0ul/FZ_nRF24_jammer&type=date&legend=top-left">
+<a href="https://star-history.dera.page/#W0rthlessS0ul/FZ_nRF24_jammer">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=W0rthlessS0ul/FZ_nRF24_jammer&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=W0rthlessS0ul/FZ_nRF24_jammer&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=W0rthlessS0ul/FZ_nRF24_jammer&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=W0rthlessS0ul/FZ_nRF24_jammer&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=W0rthlessS0ul/FZ_nRF24_jammer" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=W0rthlessS0ul/FZ_nRF24_jammer" />
  </picture>
 </a>
